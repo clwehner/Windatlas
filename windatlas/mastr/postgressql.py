@@ -4,14 +4,14 @@ import flask
 import sys
 import os
 
-
 #%% Reading Data from xml to pandas
 
-def from_xml_to_DataFrame(pathToXML:str) -> pandas.core.frame.DataFrame:
+def from_xml_to_DataFrame(XMLpathList:list) -> pandas.core.frame.DataFrame:
     """
     
     """
-    return pandas.read_xml(path_or_buffer=pathToXML, encoding="utf-16")
+    listDfs = [pandas.read_xml(path_or_buffer=file, encoding="utf-16") for file in XMLpathList]
+    return pandas.concat(listDfs,ignore_index=True)
 
 
 def change_Dtype_Datetime(df:pandas.core.frame.DataFrame):# -> pandas.core.frame.DataFrame:
