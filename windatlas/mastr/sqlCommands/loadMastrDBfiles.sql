@@ -1,1 +1,1 @@
-SELECT * FROM mastr_raw."EinheitenSolar";
+SELECT "Laengengrad", "Breitengrad" FROM mastr_raw."EinheitenSolar";

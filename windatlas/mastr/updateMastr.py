@@ -23,7 +23,7 @@ def check_dir_from_today(path:str=PATH_VOLLAUSZUEGE, date:datetime.date=TODAY):
         print(f"Most recent directory is: {recentDir}")
         print(f"Creat a directory for today: {strDate} ? [y/n]")
         answer = input()
-        if answer == "n":
+        if answer == s"n":
             return None
         create_dir_for_today(strDate)
 
@@ -80,6 +80,6 @@ def from_xml_to_DataFrame(XMLpathList:list) -> pandas.core.frame.DataFrame:
     listDfs = [pandas.read_xml(path_or_buffer=file, encoding="utf-16") for file in XMLpathList]
     return pandas.concat(listDfs,ignore_index=True)
 
-#if __name__ == "__main__":
-#    files = list_xml_files()
-#    print(f"List of .xml files: {files}")
+if __name__ == "__main__":
+    files = list_xml_files()
+    print(f"List of .xml files: {files}")
