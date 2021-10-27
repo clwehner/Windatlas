@@ -1,1 +1,1 @@
-SELECT * FROM mastr_raw."EinheitenWind";
+SELECT * FROM mastr_raw."EinheitenSolar";
