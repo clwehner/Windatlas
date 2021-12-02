@@ -1,0 +1,21 @@
+name: cronUpdate
+# channels:
+#   - javascript
+dependencies:
+  - python=3.8.12   # or 2.7
+  - bokeh
+  - nodejs
+  - flask
+  - numpy
+  - pandas
+  - nodejs
+  - flask
+  - pip
+  - bs4
+  - urllib3
+  - requests
+#  - zipfile
+#  - io
+  - sqlalchemy
+#  - postgressql
+  
