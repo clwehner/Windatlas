@@ -23,7 +23,7 @@ def check_dir_from_today(path:str=PATH_VOLLAUSZUEGE, date:datetime.date=TODAY):
         print(f"Most recent directory is: {recentDir}")
         print(f"Creat a directory for today: {strDate} ? [y/n]")
         answer = input()
-        if answer == s"n":
+        if answer == "n":
             return None
         create_dir_for_today(strDate)
 

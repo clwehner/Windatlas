@@ -1,1 +1,5 @@
-SELECT "Laengengrad", "Breitengrad" FROM mastr_raw."EinheitenSolar";
+SELECT * FROM mastr_raw."EinheitenWind"; -- "Laengengrad", "Breitengrad"
+
+/*
+
+*/
