@@ -12,9 +12,9 @@ To check your existing CRON-Jobs, type `crontab -l` in your terminal.
 
 In order to set the repetion rate, we have to understand the sytax to set that rate. The Webpage [crontab.guru](https://crontab.guru/) helps you figuring out your desired rate.
 
-I for now want to start the python script to update the MaStR-DB every morning from *Monday to Friday at 05:00 am*:
+I for now want to start the python script to update the MaStR-DB every morning from *Monday to Friday at 04:00 am*:
 
-*0 5 * * 1-5*
+*0 4 * * 1-5*
 
 
 #### Creating new CRON-Job
