@@ -53,9 +53,9 @@ if __name__ == '__main__':
 
 ###### Line to enter in crontab:
 
-The path to your python file can differ and depends on where you have created it.
+The path to your python file can differ and depends on where you have created it. It is but important to link to the python environment you want to use. Here I refer to a installed anaconda base env:
 
-`* * * * * python ~/Documents/code/Windatlas/windatlas/mastr/autoUpdate/test.py`
+`* * * * * /opt/anaconda/anaconda3/bin/python ~/Documents/code/Windatlas/windatlas/mastr/autoUpdate/test.py`
 
 After inserting, press `esc` to exit **-INSERT MODE-** and type `:wq` to save and exit the vim editor.
 

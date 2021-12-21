@@ -27,7 +27,7 @@ CONN_PARAMS_DIC = {
 dir_path = os.path.dirname(os.path.realpath(__file__))
 filename = os.path.join(dir_path, 'update_log.log')
 
-print(filename)
+# print(filename)
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -37,6 +37,8 @@ file_handler = logging.FileHandler(filename)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
+
+# os.chmod(filename, 775)
 
 def do_logging(infoStr):
     logger.info(infoStr)
@@ -211,12 +213,14 @@ class MastrDBUpdate():
 ##### Defining main function to run
 
 if __name__ == '__main__':
+    do_logging("#######   DATABASE UPDATE STARTED   #######")
+
     # downloading and extracting recent mastr files
-    #mastrDownloader = MastrDownloader()
-    #mastrDownloader.clear_directory()
-    #mastrDownloader.get_mastr_download_link()
-    #mastrDownloader.download_mastr_files()
-    #mastrDownloader.extract_mastr_files()
+    mastrDownloader = MastrDownloader()
+    mastrDownloader.clear_directory()
+    mastrDownloader.get_mastr_download_link()
+    mastrDownloader.download_mastr_files()
+    mastrDownloader.extract_mastr_files()
 
     # pushing new mastr date to postgresql
     mastrDBUpdater = MastrDBUpdate()

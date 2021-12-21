@@ -2,6 +2,8 @@ import logging
 import os
 from bs4 import BeautifulSoup
 import urllib3
+import sys 
+import pandas as pd
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 filename = os.path.join(dir_path, 'test_log.log')
@@ -17,6 +19,8 @@ file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
 
+#os.chmod(filename, 1775)
+
 # Webcrowler
 http = urllib3.PoolManager()
 
@@ -29,9 +33,12 @@ for link in soup.findAll('a'):
         downloadString = str(link.get('href'))
         # print(downloadString)
 
-def do_logging():
-    logger.info(downloadString)
+def do_logging(str):
+    logger.info(str)
+
 
 
 if __name__ == '__main__':
-    do_logging()
+    do_logging(downloadString)
+    do_logging(f"Version Pandas: {pd.__version__}")
+    do_logging(f"Version Python: {sys.version}")
