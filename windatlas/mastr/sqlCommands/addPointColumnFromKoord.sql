@@ -1,32 +1,12 @@
+--Creat Points for one table without PostGIS
 ALTER TABLE mastr_raw."EinheitenWind"
-  DROP COLUMN IF EXISTS geo_point;
+  DROP COLUMN IF EXISTS geom;
 
 ALTER TABLE mastr_raw."EinheitenWind"
-  ADD COLUMN geo_point POINT;
+  ADD COLUMN geom GEOMETRY(POINT, 4326);
 
 UPDATE mastr_raw."EinheitenWind"
-  SET geo_point = point("Laengengrad", "Breitengrad");
-
-/*Creat Points for one table without PostGIS
-ALTER TABLE mastr_raw."EinheitenWind"
-  DROP COLUMN IF EXISTS geo_point;
-
-ALTER TABLE mastr_raw."EinheitenWind"
-  ADD COLUMN geo_point POINT;
-
-UPDATE mastr_raw."EinheitenWind"
-  SET geo_point = point("Laengengrad", "Breitengrad");
-*/
-
-/*Same with PostGIS installed
-
-ALTER TABLE mastr_raw."EinheitenWind"
-  ADD COLUMN geo_point GEOGRAPHY(POINT,4326);
-
-UPDATE mastr_raw."EinheitenWind"
-  SET geo_point = 'SRID=4326;POINT(' || "Laengengrad" || ' ' || "Breitengrad" || ')';
-
-*/
+  SET geom = ST_SetSRID(ST_MakePoint("Laengengrad", "Breitengrad"), 4326);
 
 /*Looping over all tables in a schema 
 
@@ -47,24 +27,24 @@ END;
 
 --My Version
 DO
-$$
+$func$
 DECLARE
     rec record;
 BEGIN
-    FOR rec IN 
-        SELECT table_schema, table_name, column_name
-        FROM information_schema.columns 
+    FOR formal_table IN
+        SELECT quote_ident(table_name)
+        FROM information_schema.tables 
         WHERE column_name = "Laengengrad"
     LOOP
-        EXECUTE format('ALTER TABLE %I.%I DROP COLUMN IF EXISTS geo_point;',
+        EXECUTE format('ALTER TABLE %I.%I DROP COLUMN IF EXISTS geom;',
             rec.table_schema, rec.table_name);
-        EXECUTE format('ALTER TABLE %I.%I ADD COLUMN COLUMN geo_point POINT;',
+        EXECUTE format('ALTER TABLE %I.%I ADD COLUMN geom GEOMETRY(POINT, 4326);',
             rec.table_schema, rec.table_name);
-        EXECUTE format('UPDATE %I.%I SET geo_point = point("Laengengrad", "Breitengrad");',
+        EXECUTE format('UPDATE %I.%I SET geom = ST_SetSRID(ST_MakePoint("Laengengrad", "Breitengrad"), 4326);',
             rec.table_schema, rec.table_name);
     END LOOP;
 END;
-$$
+$func$
 LANGUAGE plpgsql;
 
 */
