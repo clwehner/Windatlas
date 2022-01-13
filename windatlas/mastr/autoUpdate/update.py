@@ -1,5 +1,6 @@
 import logging
 import os
+from enum import Enum, unique
 
 from bs4 import BeautifulSoup
 import urllib3
@@ -14,7 +15,7 @@ MASTR_URL = "https://www.marktstammdatenregister.de/MaStR/Datendownload"
 XML_DUMMY_PATH = r"/uba/mastr/MaStR/Vollauszüge/recent/"
 XML_FILTER = ["Netzanschlusspunkte"] # More can be added...
 
-CONN_PARAMS_DIC = {
+__CONN_PARAMS_DIC = {
     "host": "10.0.0.102",
     "dbname": "mastr",
     "user": "uba_user",
@@ -25,23 +26,33 @@ CONN_PARAMS_DIC = {
 ##### Defining logging function
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-filename = os.path.join(dir_path, 'update_log.log')
+file_name = os.path.join(dir_path, 'update_log.log')
 
-# print(filename)
+#print(file_name)
 
 # Logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler(filename)
+file_handler = logging.FileHandler(file_name)
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_handler)
 
-# os.chmod(filename, 775)
+#os.chmod(file_name, 775)
 
-def do_logging(infoStr):
-    logger.info(infoStr)
+def do_logging(info_str):
+    logger.info(info_str)
+
+##### Define Enums for MaStR-DB update functionality
+@unique
+class DataType(Enum):
+    """
+    DataType
+    This Enums are used to deliver valid data types while handeling data downloaded from the mastr.
+    """
+
+    XML = ".xml"
 
 ##### Defining classes to download and update mastr DB
 
@@ -50,13 +61,13 @@ class MastrDownloader():
         self.url=MASTR_URL
         self.downloadDir=XML_DUMMY_PATH
 
-    def clear_directory(self, dataType:str=".xml"):
+    def clear_directory(self, dataType:DataType=DataType.XML):
         """[summary]
 
         Args:
             dataType (str, optional): [description]. Defaults to ".xml".
         """
-        filelist = [ f for f in os.listdir(self.downloadDir) if f.endswith(dataType) ]
+        filelist = [ f for f in os.listdir(self.downloadDir) if f.endswith(dataType.value) ]
         do_logging(f"Found {len(filelist)} files to delete.")
         for f in filelist:
             os.remove(os.path.join(self.downloadDir, f))
@@ -82,8 +93,8 @@ class MastrDownloader():
         if not os.path.exists(self.downloadDir):
             os.makedirs(self.downloadDir)  # create folder if it does not exist
 
-        filename = self.downloadURL.split('/')[-1].replace(" ", "_")  # be careful with file names
-        file_path = os.path.join(self.downloadDir, filename)
+        file_name = self.downloadURL.split('/')[-1].replace(" ", "_")  # be careful with file names
+        file_path = os.path.join(self.downloadDir, file_name)
 
         r = requests.get(self.downloadURL, stream=True)
         if r.ok:
@@ -119,7 +130,7 @@ class MastrDownloader():
                     os.remove(file_name) # delete zipped file
 
 class MastrDBUpdate():
-    def __init__(self, xmlPath:str=XML_DUMMY_PATH, dbParameterDic:dict=CONN_PARAMS_DIC, xmlFilter:list=XML_FILTER):
+    def __init__(self, xmlPath:str=XML_DUMMY_PATH, dbParameterDic:dict=__CONN_PARAMS_DIC, xmlFilter:list=XML_FILTER):
         self.xmlPath = xmlPath
         self.xmlFilter = xmlFilter
         self.xmlList = list()
