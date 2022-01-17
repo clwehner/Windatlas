@@ -11,9 +11,9 @@ import sqlalchemy
 
 ##### Defining Constants
 
-MASTR_URL = "https://www.marktstammdatenregister.de/MaStR/Datendownload"
-XML_DUMMY_PATH = r"/uba/mastr/MaStR/Vollauszüge/recent/"
-XML_FILTER = ["Netzanschlusspunkte"] # More can be added...
+_MASTR_URL = "https://www.marktstammdatenregister.de/MaStR/Datendownload"
+_XML_DUMMY_PATH = r"/uba/mastr/MaStR/Vollauszüge/recent/"
+_XML_FILTER = ["Netzanschlusspunkte"] # More can be added...
 
 __CONN_PARAMS_DIC = {
     "host": "10.0.0.102",
@@ -58,8 +58,8 @@ class DataType(Enum):
 
 class MastrDownloader():
     def __init__(self):
-        self.url=MASTR_URL
-        self.downloadDir=XML_DUMMY_PATH
+        self.url=_MASTR_URL
+        self.downloadDir=_XML_DUMMY_PATH
 
     def clear_directory(self, dataType:DataType=DataType.XML):
         """[summary]
@@ -130,7 +130,7 @@ class MastrDownloader():
                     os.remove(file_name) # delete zipped file
 
 class MastrDBUpdate():
-    def __init__(self, xmlPath:str=XML_DUMMY_PATH, dbParameterDic:dict=__CONN_PARAMS_DIC, xmlFilter:list=XML_FILTER):
+    def __init__(self, xmlPath:str=_XML_DUMMY_PATH, dbParameterDic:dict=__CONN_PARAMS_DIC, xmlFilter:list=_XML_FILTER):
         self.xmlPath = xmlPath
         self.xmlFilter = xmlFilter
         self.xmlList = list()

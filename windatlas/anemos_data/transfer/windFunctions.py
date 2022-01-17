@@ -2,14 +2,70 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray
 import psycopg2 # for postgresSQL management
+from dataclasses import dataclass
+
+from enum import Enum, unique
 
 #########################################################
 ### Filter functions to work through netCDF wind data ###
 #########################################################
 
+@unique
+class ProjectionTransformation(Enum):
+    PYPROJ = "pyproj"
+    GDAL = "gdal"
 
+@dataclass
+class Point():
+    coor:list(float,float)
+    level:int
+
+    def __post_init__(self):
+        self.xy = self.coor_transformation(coor=self.coor)
+
+    def coor_transformation(
+            coor:list,
+            engine:ProjectionTransformation=ProjectionTransformation.PYPROJ
+            )->list:
+        """[summary]
+
+        Args:
+            coor (list): [description]
+            engine (ProjectionTransformation, optional): [description]. Defaults to ProjectionTransformation.PYPROJ.
+
+        Returns:
+            list: [description]
+        """
+        __lambert_proj_str = "+proj=lcc +lat_1=48.0 +lat_2=54.0 +lat_0=50.893 +lon_0=10.736 +a=6370000 +b=6370000 +nadgrids=null +no_defs"
+
+        if engine.value == "pyproj":
+            from pyproj import CRS, Transformer
+
+            crsD3E5 = CRS.from_proj4(__lambert_proj_str)
+            crsGeo = CRS.from_epsg(4326)
+            geo2altas = Transformer.from_crs(crsGeo, crsD3E5)
+
+            x,y = geo2altas.transform(coor[0], coor[1])
+            return[x,y]
+
+        if engine == "gdal":
+            from ogr import Geometry, wkbPoint
+            from osr import SpatialReference
+            
+            d3e5Prj = SpatialReference()
+            d3e5Prj.ImportFromProj4(__lambert_proj_str)
+            geoPrj = SpatialReference()
+            geoPrj.ImportFromEPSG(4326)
+
+            point = Geometry(wkbPoint)
+            point.AddPoint(coor[0], coor[1])
+            point.AssignSpatialReference(geoPrj)    # tell the point what coordinates it's in
+            point.TransformTo(d3e5Prj)              # project it to the out spatial reference
+            return[point.GetX(),point.GetY()]
+
+#@dataclass
 class CoordinateSearch ():
-    def __init__(self, xarray:xarray.core.dataset.Dataset, Point:dict):
+    def __init__(self, xarray:xarray.Dataset, Point:dict):
         self.data = xarray
         self.point = Point
 
@@ -18,7 +74,7 @@ class CoordinateSearch ():
             xarrayData = self.data, 
             Point = self.point)
 
-    def findPoint(self, xarrayData:xarray.core.dataset.Dataset, Point:dict):
+    def findPoint(self, xarrayData:xarray.Dataset, Point:dict):
         """
         Findes the closest lon, lat coordiante to a given Point in a xarray Dataset, where lon, lat is given as a value in dependency to the coordinates x, y.
 
@@ -35,7 +91,7 @@ class CoordinateSearch ():
         
         return np.where(c == np.min(c)), None
 
-    def getPointData(self, xarrayData:xarray.core.dataset.Dataset, x, y, level=None, time=None):
+    def getPointData(self, xarrayData:xarray.Dataset, x, y, level=None, time=None):
         """
         Selects point in a given xarray with the supplied x, y local coordinates. 
         If a certain level of hight is passed as well, the time will be filtered as well.
@@ -45,32 +101,33 @@ class CoordinateSearch ():
         
         return xarrayData.sel(x=x, y=y)
 
-def findPoint(xarray:xarray.core.dataset.Dataset, Point:dict):
-    """
-    Findes the closest lon, lat coordiante to a given Point in a xarray Dataset, where lon, lat is given as a value in dependency to the coordinates x, y.
+    def coor_transformation(coor:list,engine:ProjectionTransformation=ProjectionTransformation.PYPROJ)->list:
+        __lambert_proj_str = "+proj=lcc +lat_1=48.0 +lat_2=54.0 +lat_0=50.893 +lon_0=10.736 +a=6370000 +b=6370000 +nadgrids=null +no_defs"
 
-    """
-    abslat = np.abs(xarray.lat-Point["coor"][0])
-    abslon = np.abs(xarray.lon-Point["coor"][1])
-    c = np.maximum(abslon, abslat)
-    
-    if 'level' in xarray.dims and 'level' in Point.keys():
-        abslev = np.abs(xarray.level-Point["level"])
-        nearestlevel = np.where(abslev == np.min(abslev))
-        nearestlevel = xarray.level[nearestlevel]
-        return np.where(c == np.min(c)), nearestlevel
-    
-    return np.where(c == np.min(c)), None
+        if engine.value == "pyproj":
+            from pyproj import CRS, Transformer
 
-def getPointData(xarray:xarray.core.dataset.Dataset, x, y, level=None, time=None):
-    """
-    Selects point in a given xarray with the supplied x, y local coordinates. 
-    If a certain level of hight is passed as well, the time will be filtered as well.
-    """
-    if level:
-        return xarray.sel(x=x, y=y, level=level)
-    
-    return xarray.sel(x=x, y=y)
+            crsD3E5 = CRS.from_proj4(__lambert_proj_str)
+            crsGeo = CRS.from_epsg(4326)
+            geo2altas = Transformer.from_crs(crsGeo, crsD3E5)
+
+            x,y = geo2altas.transform(coor[0], coor[1])
+            return[x,y]
+
+        if engine == "gdal":
+            from ogr import Geometry, wkbPoint
+            from osr import SpatialReference
+            
+            d3e5Prj = SpatialReference()
+            d3e5Prj.ImportFromProj4(__lambert_proj_str)
+            geoPrj = SpatialReference()
+            geoPrj.ImportFromEPSG(4326)
+
+            point = Geometry(wkbPoint)
+            point.AddPoint(coor[0], coor[1])
+            point.AssignSpatialReference(geoPrj)    # tell the point what coordinates it's in
+            point.TransformTo(d3e5Prj)              # project it to the out spatial reference
+            return[point.GetX(),point.GetY()]
 
 
 ##########################################################################
