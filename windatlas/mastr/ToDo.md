@@ -1,5 +1,7 @@
 # *Analysen für das Mastr*
 
+[Beschreibung](https://www.marktstammdatenregister.de/MaStR/Datendownload) der Struktur und Spalten der MaStR-Daten.
+
 ## Analysen für Wind
 
 - Anlagenanzahl bei angenommenen Zubau bis 2030 

@@ -11,17 +11,11 @@ import sqlalchemy
 
 ##### Defining Constants
 
+from .. import _CONN_PARAMS_DIC
+
 _MASTR_URL = "https://www.marktstammdatenregister.de/MaStR/Datendownload"
 _XML_DUMMY_PATH = r"/uba/mastr/MaStR/Vollauszüge/recent/"
 _XML_FILTER = ["Netzanschlusspunkte"] # More can be added...
-
-__CONN_PARAMS_DIC = {
-    "host": "10.0.0.102",
-    "dbname": "mastr",
-    "user": "uba_user",
-    "password": "UBAit2021!",
-    "port": "5432"
-}
 
 ##### Defining logging function
 
@@ -130,7 +124,7 @@ class MastrDownloader():
                     os.remove(file_name) # delete zipped file
 
 class MastrDBUpdate():
-    def __init__(self, xmlPath:str=_XML_DUMMY_PATH, dbParameterDic:dict=__CONN_PARAMS_DIC, xmlFilter:list=_XML_FILTER):
+    def __init__(self, xmlPath:str=_XML_DUMMY_PATH, dbParameterDic:dict=_CONN_PARAMS_DIC, xmlFilter:list=_XML_FILTER):
         self.xmlPath = xmlPath
         self.xmlFilter = xmlFilter
         self.xmlList = list()
