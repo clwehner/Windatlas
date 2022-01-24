@@ -5,27 +5,25 @@ import datetime
 
 #import matplotlib.pyplot as plt
 
-from dataclasses import dataclass
 from enum import Enum
 
 class XarrayDataType(Enum):
     DATAARRAY= "DataArray"
     DATASET= "Dataset"
 
-@dataclass
 class Lkl_array ():
     """[summary]
 
     Returns:
         [type]: [description]
     """
-    source_csv: str 
-    xr_dataclass: XarrayDataType = XarrayDataType.DATAARRAY
-    interpolated: bool = False
-    power_limiter: bool = False
+    def __init__(
+        self,
+        source_csv: str,
+        xr_dataclass: XarrayDataType = XarrayDataType.DATAARRAY,
+        interpolated: bool = False,
+        power_limiter: bool = False):
 
-
-    def __post_init__(self):
         self.__lkl_to_pandas()
         if self.xr_dataclass.value == "DataArray":
             self.__lkl_to_xarrayDataArray()
