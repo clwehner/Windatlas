@@ -1,4 +1,5 @@
 /windatlas/testData/*
+.nc
 
 ########################
 ### Python.gitignore ###

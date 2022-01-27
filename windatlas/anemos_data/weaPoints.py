@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray
-import psycopg2 # for postgresSQL management
 import pandas
 
 # for Coordinate Transformation
@@ -12,9 +11,10 @@ from osr import SpatialReference
 # for function definitions
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import List, Optional
+from typing import List, Dict, Optional
 
-from anemosData import WindData, WindDataKind
+from anemosData import _WindData, WindDataKind, TsNcWindData
+from power_curve import Lkl_array
 
 #########################################################
 ### Filter functions to work through netCDF wind data ###
@@ -69,6 +69,7 @@ class _WeaPoint():
     power_time_series: xarray.DataArray = field(
             default = None, 
             init = False, 
+            repr=False,
             compare = False)
 
     def __post_init__(self):
@@ -103,17 +104,32 @@ class _WeaPoint():
 
     def get_power_output(
         self,
-        x_transform: List[float],
-        y_transform: List[float],
+        wind_data: dict,
+        power_curve: xarray.DataArray,
         save_to: Optional[str] = None,
-        wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
         ):
 
-        timeSeriesData = {wind_param.value:None for wind_param in wind_params}
-        for param in wind_params:
-            timeSeriesData = WindData()
-        # GOAL
-        self.power_time_series = None
+        # resetting the whole wind data in the passed wind_data dict to the desired point time series
+        print(f"{wind_data.items()}")
+        new_wind_data = {}
+        for key, value in wind_data.items():
+            print(f"{value.wind_data_kind}")
+            new_wind_data[key] = value.interp_point(
+                        target_coord=self.x_y_coor,
+                        target_level=self.level, 
+                        method=self.interpolation_method)
+
+        # calculating power from wspd, rho and power_curve
+        power = power_curve.sel(
+                wspd=xarray.DataArray(new_wind_data["wspd"].wspd.values, dims='wea'), 
+                rho=xarray.DataArray(new_wind_data["rho"].rho.values, dims='wea'), 
+                method="nearest")
+
+        df = power.to_pandas().to_frame()
+        df = df.rename({0: "Eout"}, axis=1)
+        df = df.set_index(new_wind_data["wspd"].time.values)
+
+        self.power_time_series = df
 
 
 class WeaPoints():
@@ -135,22 +151,23 @@ class WeaPoints():
             self, 
             lat_lon_coor: List[List[float]],
             level: List[float],
-            wea_type: Optional[List[str]] = None,
+            wea_types: Optional[List[str]] = None,
             interpolation_method: Optional[List[InterpolationMethod]] = None,
-            point_list: List[_WeaPoint] = None,
-            num_Points:int = None,
+            #point_list: List[_WeaPoint] = None,
+            #num_Points:int = None,
             _xy_coord_path: str = r"./lambert_projection/xy_lamber_projection_values",
-            _xy_coord: np.ndarray() = None
             ):
 
-        if not wea_type:
-            wea_type = [None] * len(lat_lon_coor)
+        self._xy_coord_path = _xy_coord_path
 
-        if len(lat_lon_coor) == len(level) == len(wea_type):
+        if not wea_types:
+            wea_types = [None] * len(lat_lon_coor)
+
+        if len(lat_lon_coor) == len(level) == len(wea_types):
             if not interpolation_method:
-                self.point_list = [_WeaPoint(point, level, typ) for point, level, typ in zip(lat_lon_coor, level, wea_type)]
+                self.point_list = [_WeaPoint(point, level, typ) for point, level, typ in zip(lat_lon_coor, level, wea_types)]
             if interpolation_method:
-                self.point_list = [_WeaPoint(point, level, typ, interpolation_method = intm) for point, level, typ, intm in zip(lat_lon_coor, level, wea_type, interpolation_method)]
+                self.point_list = [_WeaPoint(point, level, typ, interpolation_method = intm) for point, level, typ, intm in zip(lat_lon_coor, level, wea_types, interpolation_method)]
         
         self.num_Points = len(self.point_list)
 
@@ -166,19 +183,24 @@ class WeaPoints():
         # assign the new x,y values to the netCDF data
         x = new_dim_coor["x"].dropna().astype("int").values
         y = new_dim_coor["y"].values
-        self._xy_coord = np.stack([x, y])
+        return [x, y]
 
 
     def get_power_output(
             self,
-            x_transform: List[float],
-            y_transform: List[float],
+            power_curves: xarray.Dataset,
+            wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
         ):
+        # Transformation data for windatlas
+        #transformation = self._load_new_lambert_coor()
 
-
+        wind_data = {}
+        for param in wind_params:
+            wind_data[param.value] = TsNcWindData(wind_data_kind=param)#, xy_coord=transformation)
 
         for point in self.point_list:
-            point.get_power_output(x_transform, y_transform)
+            power_curve_wea = power_curves[point.wea_type]
+            point.get_power_output(wind_data=wind_data, power_curve=power_curve_wea)
 
     
 

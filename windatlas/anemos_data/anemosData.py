@@ -1,15 +1,30 @@
-from dataclasses import dataclass
-from enum import Enum
+#from dataclasses import dataclass
+from enum import (
+                Enum,
+                unique,
+                )
 
-from weaPoints import _WeaPoint
+from typing import (
+                Optional, 
+                Dict, 
+                List,
+                )
+
+from abc import (
+                ABC, 
+                abstractmethod,
+                )
+
+from multiprocessing import Pool
+import concurrent
 
 import pandas
 import numpy
-import os
+import xarray
 
 class WindDataKind(Enum):
     WINDSPEED = "wspd"
-    AIRDENSITY = "roh"
+    AIRDENSITY = "rho"
     RELATIVEAIRHUMIDITY = "rhum"
     WINDDIRECTION = "wdir"
     AIRPRESSURE = "pres"
@@ -17,42 +32,180 @@ class WindDataKind(Enum):
     WEIBULLK = "wbk"
 
 class WindDataType(Enum):
-    TSNETCDF = "TSNC-Format/"
-    NETCDF = "NC-Format/"
-    MEAN90M = "3arcsecs/"
-    MEAN3KM = "Statistics/"
+    TSNETCDF = r"TSNC-Format/"
+    NETCDF = r"NC-Format/"
+    MEAN90M = r"3arcsecs/"
+    MEAN3KM = r"Statistics/"
 
-class WindData():
+@unique
+class InterpolationMethod(Enum):
+    NEAREST = "nearest"
+    LINEAR = "linear"
+    QUDRATIC = "quadratic"
+    CUBIC = "cubic"
+
+
+class _WindData(ABC):
     """To Do:
     - exclude x, y transform to only load them ones before processing netCDF data
     """
+
+    _wind_data_path = r"/uba/anemos_winddata/20191029_anemosDataFull/UBA-Windatlas"
+    winddata = None
+
     def __init__(
         self,
-        wind_data: WindDataKind,
-        point: _WeaPoint,
-        wind_data_type: WindDataType = WindDataType.TSNETCDF,
-        chunks: dict = None,
-        mfdataset: bool = False,
-        parallel: bool = True,
-        _xy_coord_path: str = r"./development/xy_lamber_projection_values",
-        _wind_data_path: str = r"/uba/anemos_winddata/20191029_anemosDataFull/UBA-Windatlas/",
+        _wind_data_path: Optional[str] = None,
+        _wind_data_type: WindDataType = None,
         ):
 
+        if _wind_data_path:
+            self._wind_data_path = _wind_data_path
+        self._wind_data_type = _wind_data_type
+
         self.data_path = self.__build_data_path()
-        self.__load_winddata()
-        self._assign_new_lambert_coor()
 
     def __build_data_path(self) -> str:
-        return self._wind_data_path + self.wind_data_type.value
+        return f"{self._wind_data_path}/{self._wind_data_type.value}"
 
-    def __load_winddata(self):
+    @abstractmethod
+    def load_winddata(self):
         pass
+
+    @abstractmethod
+    def interp_point(
+        self,
+        target_coord: List[float],
+        interpolation_method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ) -> xarray.Dataset:
+        pass
+
+
+class TsNcWindData(_WindData):
+
+    _xy_coord_path = r"./lambert_projection/xy_lamber_projection_values"
+    _wind_data_type = WindDataType.TSNETCDF
+    winddata = None
+
+    def __init__(
+        self,
+        wind_data_kind: WindDataKind,
+        time_frame: Optional[List[int]] = [2009, 2018],
+        _wind_data_path: Optional[str] = None,
+        chunks: Optional[Dict] = None,
+        mfdataset: Optional[bool] = True,
+        parallel: Optional[bool] = True,
+        ):
+
+        super().__init__( 
+            _wind_data_path = _wind_data_path,
+            _wind_data_type = self._wind_data_type,
+            )#_WindData, self
+
+        self.time_frame = time_frame
+        self.wind_data_kind = wind_data_kind
+
+        self.chunks = chunks
+        self.mfdataset = mfdataset
+        self.parallel = parallel
+
+        self.winddata = self.load_winddata()
 
     def _assign_new_lambert_coor(
             self,
-            xy_coord:numpy.ndarray,
+            xarray_data:xarray.Dataset,
+            xy_path: Optional[str] = None,
             ):
 
-        self.xarray_data = self.xarray_data.assign_coords(
-            coords={"x": xy_coord[0],"y": xy_coord[1]}
+        if not xy_path:
+            xy_path = self._xy_coord_path
+
+        new_dim_coor = pandas.read_csv(xy_path)
+        # assign the new x,y values to the netCDF data
+        x = new_dim_coor["x"].dropna().astype("int").values
+        y = new_dim_coor["y"].values
+
+        return xarray_data.assign_coords(
+            coords={"x": x,"y": y}
             )
+        
+    def __load_winddata_ds(self):
+        data_list = []
+        for year in range(self.time_frame[0], self.time_frame[1]+1, 1):
+            path = f"{self.data_path}{self.wind_data_kind.value}.10L.{year}.ts.nc"
+            data = xarray.open_dataset(path, engine='h5netcdf', chunks=self.chunks)
+            data = self._assign_new_lambert_coor(data)
+            data_list.append(data)
+
+        return data_list
+
+    def __load_winddata_mfds(self):
+        #data_list = []
+        path = f"{self.data_path}{self.wind_data_kind.value}.10L.*.ts.nc"
+        data = xarray.open_mfdataset(path, engine='h5netcdf', chunks=self.chunks, parallel=self.parallel)
+
+        start = str(self.time_frame[0])
+        end = str(self.time_frame[1])
+        data = data.sel(time=slice(start, end))
+
+        data = self._assign_new_lambert_coor(data)
+
+        #data_list.append(data)
+
+        return data
+
+    def load_winddata(self):
+        if self.wind_data_kind.value == "wspd":
+            return self.__load_winddata_ds()
+
+        if not self.wind_data_kind.value == "wspd":
+            return self.__load_winddata_mfds()
+
+    def get_winddata(self):
+        return self.winddata
+
+    def interp_point(
+        self,
+        target_coord: List[float],
+        target_level,
+        method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ):
+
+        x=target_coord[0],
+        y=target_coord[1],
+        level=target_level,
+        method=method.value
+        winddata = self.winddata
+        
+        if self.wind_data_kind.value == "wspd":
+
+            global interp_year
+            def interp_year(data, x=x, y=y, level=level, method=method):
+                interp_data = data.interp(
+                        x=x[0],
+                        y=y[0],
+                        level=level[0],
+                        method=method).load()
+                #print(f"{data.nbytes}, {x[0]}, {y[0]}, {level[0]}, {method}")
+                return interp_data
+
+            #with concurrent.futures.ProcessPoolExecutor() as executor:
+            #    array = executor.map(interp_year(), winddata)
+
+            with Pool() as proc_pool:
+                array = proc_pool.map(interp_year, winddata)
+                proc_pool.close()
+                proc_pool.join()
+
+                ts_interp = xarray.concat(array, dim="time")
+
+            return ts_interp.load()
+
+        if not self.wind_data_kind.value == "wspd":
+            interp_data =  self.winddata.interp(
+                    x=x[0],
+                    y=y[0],
+                    level=level[0],
+                    method=method)
+
+            return interp_data.load()
