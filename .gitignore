@@ -1,7 +1,3 @@
-/windatlas/testData/*
-*.nc
-windatlas/anemos_data/wea_data/example/test_wea.nc
-
 ########################
 ### Python.gitignore ###
 ########################
@@ -145,3 +141,8 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Project Data 
+windatlas/mastr/global_setup.py
+/windatlas/testData/*
+*.nc
+windatlas/anemos_data/wea_data/example/test_wea.nc
