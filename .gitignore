@@ -145,4 +145,6 @@ cython_debug/
 windatlas/mastr/global_setup.py
 /windatlas/testData/*
 *.nc
+*.lock
+*.dirlock
 windatlas/anemos_data/wea_data/example/test_wea.nc

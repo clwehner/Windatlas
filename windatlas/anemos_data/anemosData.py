@@ -15,12 +15,20 @@ from abc import (
                 abstractmethod,
                 )
 
-from multiprocessing import Pool
+from multiprocessing import (
+                Pool,
+                cpu_count,
+                )
 import concurrent
 
 import pandas
 import numpy
 import xarray
+import geopandas
+import rioxarray
+from shapely.geometry import mapping
+
+CPUSTOUSE = cpu_count() - 1
 
 class WindDataKind(Enum):
     WINDSPEED = "wspd"
@@ -44,6 +52,12 @@ class InterpolationMethod(Enum):
     QUDRATIC = "quadratic"
     CUBIC = "cubic"
 
+class AggregationMethod(Enum):
+    MEAN = "mean"
+    MEDIAN = "median"
+    MAX = "max"
+    MIN = "min"
+
 
 class _WindData(ABC):
     """To Do:
@@ -55,8 +69,8 @@ class _WindData(ABC):
 
     def __init__(
         self,
-        _wind_data_path: Optional[str] = None,
         _wind_data_type: WindDataType = None,
+        _wind_data_path: Optional[str] = None,
         ):
 
         if _wind_data_path:
@@ -80,6 +94,15 @@ class _WindData(ABC):
         ) -> xarray.Dataset:
         pass
 
+    @abstractmethod
+    def agg_shape(
+        self,
+        target_shapes: List[float],
+        aggregation_method: Optional[AggregationMethod] = AggregationMethod.MEDIAN,
+        interpolation_method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ) -> xarray.Dataset:
+        pass
+
 
 class TsNcWindData(_WindData):
 
@@ -90,7 +113,7 @@ class TsNcWindData(_WindData):
     def __init__(
         self,
         wind_data_kind: WindDataKind,
-        time_frame: Optional[List[int]] = [2009, 2018],
+        time_frame: Optional[List[int]] = None,
         _wind_data_path: Optional[str] = None,
         chunks: Optional[Dict] = None,
         mfdataset: Optional[bool] = True,
@@ -129,7 +152,13 @@ class TsNcWindData(_WindData):
             coords={"x": x,"y": y}
             )
         
-    def __load_winddata_ds(self):
+    def __load_winddata_ds(self) -> List[xarray.Dataset]:
+        """ToDo: 
+        - specify date to year for import and more specific date for .sel after concatenation
+
+        Returns:
+            List[xarray.Dataset]: [description]
+        """
         data_list = []
         for year in range(self.time_frame[0], self.time_frame[1]+1, 1):
             path = f"{self.data_path}{self.wind_data_kind.value}.10L.{year}.ts.nc"
@@ -139,27 +168,25 @@ class TsNcWindData(_WindData):
 
         return data_list
 
-    def __load_winddata_mfds(self):
-        #data_list = []
+    def __load_winddata_mfds(self) -> xarray.Dataset:
         path = f"{self.data_path}{self.wind_data_kind.value}.10L.*.ts.nc"
         data = xarray.open_mfdataset(path, engine='h5netcdf', chunks=self.chunks, parallel=self.parallel)
 
-        start = str(self.time_frame[0])
-        end = str(self.time_frame[1])
-        data = data.sel(time=slice(start, end))
+        if self.time_frame:
+            start = str(self.time_frame[0])
+            end = str(self.time_frame[1])
+            data = data.sel(time=slice(start, end))
 
         data = self._assign_new_lambert_coor(data)
-
-        #data_list.append(data)
 
         return data
 
     def load_winddata(self):
-        if self.wind_data_kind.value == "wspd":
-            return self.__load_winddata_ds()
-
-        if not self.wind_data_kind.value == "wspd":
+        if self.mfdataset:
             return self.__load_winddata_mfds()
+
+        if not self.mfdataset:
+            return self.__load_winddata_ds()
 
     def get_winddata(self):
         return self.winddata
@@ -169,15 +196,24 @@ class TsNcWindData(_WindData):
         target_coord: List[float],
         target_level,
         method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
-        ):
+        ) -> xarray.Dataset:
 
         x=target_coord[0],
         y=target_coord[1],
         level=target_level,
         method=method.value
         winddata = self.winddata
+
+        if self.mfdataset:
+            interp_data =  self.winddata.interp(
+                    x=x[0],
+                    y=y[0],
+                    level=level[0],
+                    method=method)
+
+            return interp_data#.load()
         
-        if self.wind_data_kind.value == "wspd":
+        if not self.mfdataset:
 
             global interp_year
             def interp_year(data, x=x, y=y, level=level, method=method):
@@ -191,8 +227,8 @@ class TsNcWindData(_WindData):
 
             #with concurrent.futures.ProcessPoolExecutor() as executor:
             #    array = executor.map(interp_year(), winddata)
-
-            with Pool() as proc_pool:
+            
+            with Pool(CPUSTOUSE) as proc_pool:
                 array = proc_pool.map(interp_year, winddata)
                 proc_pool.close()
                 proc_pool.join()
@@ -201,11 +237,21 @@ class TsNcWindData(_WindData):
 
             return ts_interp.load()
 
-        if not self.wind_data_kind.value == "wspd":
-            interp_data =  self.winddata.interp(
-                    x=x[0],
-                    y=y[0],
-                    level=level[0],
-                    method=method)
+    def agg_shape(
+        self,
+        target_shapes: List[float],
+        aggregation_method: Optional[AggregationMethod] = AggregationMethod.MEDIAN,
+        interpolation_method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ) -> xarray.Dataset:
+        pass
+        # https://gis.stackexchange.com/questions/357490/mask-xarray-dataset-using-a-shapefile
+        # https://gis.stackexchange.com/questions/354782/masking-netcdf-time-series-data-from-shapefile-using-python/354798#354798
+        # https://pypi.org/project/xagg/
 
-            return interp_data.load()
+        #MSWEP_monthly2 = xarray.open_dataarray()
+        #MSWEP_monthly2.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+        #MSWEP_monthly2.rio.write_crs("epsg:4326", inplace=True)
+        #Africa_Shape = geopandas.read_file('D:\G3P\DATA\Shapefile\Africa_SHP\Africa.shp', crs="epsg:4326")
+        # SHAPE COORDINATES NEED TO BE TRANSFORMED
+
+        #clipped = MSWEP_monthly2.rio.clip(Africa_Shape.geometry.apply(mapping), Africa_Shape.crs, drop=False)

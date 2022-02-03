@@ -1,7 +1,9 @@
+from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray
 import pandas
+import datetime
 
 # for Coordinate Transformation
 from pyproj import CRS, Transformer
@@ -110,26 +112,24 @@ class _WeaPoint():
         ):
 
         # resetting the whole wind data in the passed wind_data dict to the desired point time series
-        print(f"{wind_data.items()}")
         new_wind_data = {}
         for key, value in wind_data.items():
-            print(f"{value.wind_data_kind}")
             new_wind_data[key] = value.interp_point(
                         target_coord=self.x_y_coor,
                         target_level=self.level, 
-                        method=self.interpolation_method)
+                        method=self.interpolation_method)#.load()
 
         # calculating power from wspd, rho and power_curve
-        power = power_curve.sel(
-                wspd=xarray.DataArray(new_wind_data["wspd"].wspd.values, dims='wea'), 
-                rho=xarray.DataArray(new_wind_data["rho"].rho.values, dims='wea'), 
-                method="nearest")
+        power = power_curve.load().sel(
+                wspd=xarray.DataArray(new_wind_data["wspd"].wspd.to_numpy(), dims='wea'), 
+                rho=xarray.DataArray(new_wind_data["rho"].rho.to_numpy(), dims='wea'), 
+                method="nearest")#.load()
 
-        df = power.to_pandas().to_frame()
-        df = df.rename({0: "Eout"}, axis=1)
-        df = df.set_index(new_wind_data["wspd"].time.values)
+        #df = power.to_pandas().to_frame()
+        #df = df.rename({0: "Eout"}, axis=1)
+        #df = df.set_index(new_wind_data["wspd"].time.values)
 
-        self.power_time_series = df
+        self.power_time_series = power.values
 
 
 class WeaPoints():
@@ -147,6 +147,10 @@ class WeaPoints():
         wea_type (Optional[str]): A string with a valid manufacturer and unit name.
         interpolation_method (Optional[InterpolationMethod]): Interpolation method to be used in later data extraction processes, if the lat_lon_coor is located in between grid points of the anemos windatlas data.
     """
+
+    time = None
+    time_frame = None
+
     def __init__(
             self, 
             lat_lon_coor: List[List[float]],
@@ -185,25 +189,103 @@ class WeaPoints():
         y = new_dim_coor["y"].values
         return [x, y]
 
+    def transforme_date(self, date) -> np.datetime64:
+        """Date input must be either an integer year like `2009`
+        or a string in the shape of `year-month-day` like `2009-12-24`
+
+        Args:
+            date ([type]): must be either an integer year like `2009`
+        or a string in the shape of `year-month-day` like `2009-12-24`
+
+        Raises:
+            ValueError: [description]
+
+        Returns:
+            numpy.datetime64: [description]
+        """
+        date = str(date)
+        if len(date)==4:
+            # Year given
+            date_str = f"{date}-01-01"
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            return np.datetime64(date)
+
+        elif len(date)==7:
+            # year and month given
+            date_str = f"{date}-01"
+            date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            return np.datetime64(date)
+
+        elif len(date)==10:
+            # date given
+            date =  datetime.datetime.strptime(date, "%Y-%m-%d") # "%Y-%m-%dT%H:%M:%S.%fZ"
+            return np.datetime64(date)
+
+        else:
+            raise ValueError("Input dates for time_frame must be string in the form of year-month-day like: '2012-11-23'")
+
 
     def get_power_output(
             self,
             power_curves: xarray.Dataset,
+            time_frame:List[int] = [2009, 2018],
             wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
         ):
         # Transformation data for windatlas
         #transformation = self._load_new_lambert_coor()
+        
+        self.time_frame = [self.transforme_date(date) if not isinstance(date, np.datetime64) else date for date in time_frame]
+
+        if any ([self.time_frame[0]<np.datetime64("2009-01-01"),self.time_frame[-1]>np.datetime64("2018-01-01")]):
+            raise ValueError("Input dates for time_frame must be in range of: '2009-01-01' to '2018-01-01'")
+
+        print("Passed time_frame valid!")
 
         wind_data = {}
         for param in wind_params:
-            wind_data[param.value] = TsNcWindData(wind_data_kind=param)#, xy_coord=transformation)
+            wind_data[param.value] = TsNcWindData(wind_data_kind=param, time_frame=self.time_frame)#, xy_coord=transformation)
 
-        for point in self.point_list:
-            power_curve_wea = power_curves[point.wea_type]
-            point.get_power_output(wind_data=wind_data, power_curve=power_curve_wea)
+        self.time = list(wind_data.values())[0].winddata.time.to_numpy()
+        print("time loaded")
 
-    
+        for num, point in enumerate(self.point_list):
+            point.get_power_output(
+                wind_data=wind_data, 
+                power_curve=power_curves[point.wea_type],
+                )
+            print(f"Windpower turbine {num+1} complete")
 
+def from_MaStR(
+        mastr_df: pandas.DataFrame,
+        time_frame: List[int] = [2009, 2018],
+        path_powercurves: Optional[str] = r"./wea_data/example/test_wea.nc",
+    ) -> pandas.DataFrame:
+    # extract needed data from mastr df
+    lat_lon_coor = None
+    level = None
+    weaType = None
+    mastrID = None
+
+    # open Leistungskennlinien
+    power_curves = xarray.open_dataset(path_powercurves)
+
+    # build wea_point list
+    weaPoints = WeaPoints(
+        lat_lon_coor = lat_lon_coor,
+        level = level,
+        wea_types = weaType,#["test_wea"] * size,
+        #interpolation_method = [InterpolationMethod.LINEAR] * size,
+    )
+
+    # calculate Eout
+    weaPoints.get_power_output(power_curves=power_curves, time_frame=time_frame)
+
+    # Build time series Dataframe
+    Eout = {}
+    for num, point in enumerate(weaPoints.point_list):
+        Eout[f"wea_{num+1}: {point.lat_lon_coor}"] = point.power_time_series
+
+    return pandas.DataFrame(data=Eout,index=weaPoints.time)
 
 ##########################################################################
 ### Plot functions to display "Windrosen" based on agregated wind data ###
@@ -259,24 +341,3 @@ def _describingHisto(xarray):
     
     for num, ax in enumerate(axs):
         ax = _circularHisto(xarray, dataVariable=diags[num])
-
-
-### MATPLOTLIB TO DASH
-
-from io import BytesIO
-import base64
-
-def _fig_to_uri(in_fig, close_all=True, **save_args):
-    """
-    Save a figure as a URI
-    :param in_fig:
-    :return:
-    """
-    out_img = BytesIO()
-    in_fig.savefig(out_img, format='png', **save_args)
-    if close_all:
-        in_fig.clf()
-        plt.close('all')
-    out_img.seek(0)  # rewind file
-    encoded = base64.b64encode(out_img.read()).decode("ascii").replace("\n", "")
-    return "data:image/png;base64,{}".format(encoded)
