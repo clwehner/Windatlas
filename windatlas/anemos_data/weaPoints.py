@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray
@@ -175,20 +176,6 @@ class WeaPoints():
         
         self.num_Points = len(self.point_list)
 
-    def _load_new_lambert_coor(
-            self,
-            xy_path: Optional[str] = None,
-            ):
-        
-        if not xy_path:
-            xy_path = self._xy_coord_path
-
-        new_dim_coor = pandas.read_csv(xy_path)
-        # assign the new x,y values to the netCDF data
-        x = new_dim_coor["x"].dropna().astype("int").values
-        y = new_dim_coor["y"].values
-        return [x, y]
-
     def transforme_date(self, date) -> np.datetime64:
         """Date input must be either an integer year like `2009`
         or a string in the shape of `year-month-day` like `2009-12-24`
@@ -254,6 +241,7 @@ class WeaPoints():
                 power_curve=power_curves[point.wea_type],
                 )
             print(f"Windpower turbine {num+1} complete")
+        
 
 def from_MaStR(
         mastr_df: pandas.DataFrame,

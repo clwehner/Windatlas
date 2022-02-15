@@ -19,16 +19,16 @@ from multiprocessing import (
                 Pool,
                 cpu_count,
                 )
-import concurrent
+#import concurrent
 
 import pandas
-import numpy
+#import numpy
 import xarray
-import geopandas
-import rioxarray
-from shapely.geometry import mapping
+#import geopandas
+#import rioxarray
+#from shapely.geometry import mapping
 
-CPUSTOUSE = cpu_count() - 1
+CPUTOUSE = cpu_count() - 1
 
 class WindDataKind(Enum):
     WINDSPEED = "wspd"
@@ -209,7 +209,9 @@ class TsNcWindData(_WindData):
                     x=x[0],
                     y=y[0],
                     level=level[0],
-                    method=method)
+                    method=method)#.interp(
+                    #level=level[0],
+                    #method=method)
 
             return interp_data#.load()
         
@@ -228,7 +230,7 @@ class TsNcWindData(_WindData):
             #with concurrent.futures.ProcessPoolExecutor() as executor:
             #    array = executor.map(interp_year(), winddata)
             
-            with Pool(CPUSTOUSE) as proc_pool:
+            with Pool(CPUTOUSE) as proc_pool:
                 array = proc_pool.map(interp_year, winddata)
                 proc_pool.close()
                 proc_pool.join()
@@ -255,3 +257,34 @@ class TsNcWindData(_WindData):
         # SHAPE COORDINATES NEED TO BE TRANSFORMED
 
         #clipped = MSWEP_monthly2.rio.clip(Africa_Shape.geometry.apply(mapping), Africa_Shape.crs, drop=False)
+
+
+class Mean90mWindData(_WindData):
+
+    _xy_coord_path = r"./lambert_projection/xy_lamber_projection_values"
+    _wind_data_type = WindDataType.MEAN90M
+    winddata = None
+
+    def __init__(
+        self,
+        wind_data_kind: WindDataKind,
+        time_frame: Optional[List[int]] = None,
+        _wind_data_path: Optional[str] = None,
+        chunks: Optional[Dict] = None,
+        mfdataset: Optional[bool] = True,
+        parallel: Optional[bool] = True,
+        ):
+
+        super().__init__( 
+            _wind_data_path = _wind_data_path,
+            _wind_data_type = self._wind_data_type,
+            )#_WindData, self
+
+        self.time_frame = time_frame
+        self.wind_data_kind = wind_data_kind
+
+        self.chunks = chunks
+        self.mfdataset = mfdataset
+        self.parallel = parallel
+
+        self.winddata = self.load_winddata()

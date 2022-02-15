@@ -2,6 +2,7 @@
 import pandas
 import sqlalchemy
 from enum import Enum, unique
+from contextlib import contextmanager
 
 @unique
 class DatabaseType(Enum):
@@ -58,6 +59,10 @@ def read_postgres_from_queryfile (
         script = scriptFile.read()
         df = pandas.read_sql(script, engine)
 
+        engine.dispose()
+        
+        return df
+
     if db_type.value == "mysql":
         pass
 
@@ -67,4 +72,3 @@ def read_postgres_from_queryfile (
     if db_type.value == "oracle":
         pass
 
-    return df
