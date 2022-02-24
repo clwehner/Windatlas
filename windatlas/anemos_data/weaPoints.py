@@ -57,23 +57,23 @@ class _WeaPoint():
     """
     lat_lon_coor: List[float]
     level: float
-    wea_type: Optional[str] = field(
+    wea_type: Optional[str]=field(
             default=None, 
             compare=False)
-    x_y_coor: List[float] = field(init=False)
-    transform_engine: Optional[ProjectionTransformation] = field(
+    x_y_coor: List[float]=field(init=False)
+    transform_engine: Optional[ProjectionTransformation]=field(
             default=ProjectionTransformation.PYPROJ,
             repr=False,
             compare=False)
-    interpolation_method: Optional[InterpolationMethod] = field(
+    interpolation_method: Optional[InterpolationMethod]=field(
             default=InterpolationMethod.LINEAR,
             repr=False,
             compare=False)
-    power_time_series: xarray.DataArray = field(
-            default = None, 
-            init = False, 
+    power_time_series: xarray.DataArray=field(
+            default=None, 
+            init=False, 
             repr=False,
-            compare = False)
+            compare=False)
 
     def __post_init__(self):
         self.x_y_coor = self.__coor_transformation()

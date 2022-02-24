@@ -18,7 +18,7 @@ class PowerCalculationMethod(Enum):
     MEAN3RAYLEIGH = "3rayleigh"
 
 
-class Get_Power():
+class Get_Powerout():
     def __init__(self,
             point_list:WeaPoints,
             data_type:PowerCalculationMethod,
