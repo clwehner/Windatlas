@@ -198,17 +198,16 @@ class TsNcWindData(_WindData):
         method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
         ) -> xarray.Dataset:
 
-        x=target_coord[0],
-        y=target_coord[1],
-        level=target_level,
+        x=target_coord[0]
+        y=target_coord[1]
+        level=target_level
         method=method.value
-        winddata = self.winddata
 
         if self.mfdataset:
             interp_data =  self.winddata.interp(
-                    x=x[0],
-                    y=y[0],
-                    level=level[0],
+                    x=x,#[0],
+                    y=y,#[0],
+                    level=level,#[0],
                     method=method)#.interp(
                     #level=level[0],
                     #method=method)
@@ -228,10 +227,10 @@ class TsNcWindData(_WindData):
                 return interp_data
 
             #with concurrent.futures.ProcessPoolExecutor() as executor:
-            #    array = executor.map(interp_year(), winddata)
+            #    array = executor.map(interp_year(), self.winddata)
             
             with Pool(CPUTOUSE) as proc_pool:
-                array = proc_pool.map(interp_year, winddata)
+                array = proc_pool.map(interp_year, self.winddata)
                 proc_pool.close()
                 proc_pool.join()
 
@@ -268,10 +267,10 @@ class Mean90mWindData(_WindData):
     def __init__(
         self,
         wind_data_kind: WindDataKind,
-        time_frame: Optional[List[int]] = None,
+        #time_frame: Optional[List[int]] = None,
         _wind_data_path: Optional[str] = None,
         chunks: Optional[Dict] = None,
-        mfdataset: Optional[bool] = True,
+        mfdataset: Optional[bool] = False,
         parallel: Optional[bool] = True,
         ):
 
@@ -280,7 +279,7 @@ class Mean90mWindData(_WindData):
             _wind_data_type = self._wind_data_type,
             )#_WindData, self
 
-        self.time_frame = time_frame
+        #self.time_frame = time_frame
         self.wind_data_kind = wind_data_kind
 
         self.chunks = chunks
@@ -288,3 +287,64 @@ class Mean90mWindData(_WindData):
         self.parallel = parallel
 
         self.winddata = self.load_winddata()
+
+
+    def __load_winddata_mfds(self) -> xarray.Dataset:
+        path = f"{self.data_path}D-3km.E5.3arcsecs.{self.wind_data_kind.value}*.nc"
+        data = xarray.open_mfdataset(path, engine='h5netcdf', chunks=self.chunks, parallel=self.parallel)
+
+        #data = self._assign_new_lambert_coor(data)
+
+        return data
+
+    def __load_winddata_ds(self) -> xarray.Dataset:
+        path = f"{self.data_path}D-3km.E5.3arcsecs.{self.wind_data_kind.value}.2009-2018.nc"
+        data = xarray.open_dataset(path, engine='h5netcdf')
+
+        #data = self._assign_new_lambert_coor(data)
+
+        return data
+
+    def load_winddata(self) -> xarray.Dataset:
+        if self.mfdataset:
+            return self.__load_winddata_mfds()
+
+        if not self.mfdataset:
+            return self.__load_winddata_ds()
+
+    def get_winddata(self):
+        return self.winddata
+
+    def interp_point(
+        self,
+        target_coord: List[float],
+        target_level,
+        method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ) -> xarray.Dataset:
+
+        x=target_coord[1],
+        y=target_coord[0],
+        level=target_level,
+        method=method.value
+
+        if not self.mfdataset:
+            interp_data =  self.winddata.interp(
+                    x=x[0],
+                    y=y[0],
+                    level=level[0],
+                    method=method)#.interp(
+                    #level=level[0],
+                    #method=method)
+
+            return interp_data#.load()
+        
+        if self.mfdataset:
+            raise NotImplementedError()
+
+    def agg_shape(
+    self,
+    target_shapes: List[float],
+    aggregation_method: Optional[AggregationMethod] = AggregationMethod.MEDIAN,
+    interpolation_method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+    ) -> xarray.Dataset:
+        pass

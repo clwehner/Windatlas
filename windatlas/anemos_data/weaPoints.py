@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum, unique
 from typing import List, Dict, Optional
 
-from anemosData import _WindData, WindDataKind, TsNcWindData
+from anemosData import _WindData, WindDataKind, TsNcWindData, Mean90mWindData
 from power_curve import Lkl_array
 
 #########################################################
@@ -35,6 +35,12 @@ class InterpolationMethod(Enum):
     LINEAR = "linear"
     QUDRATIC = "quadratic"
     CUBIC = "cubic"
+
+class WindDataType(Enum):
+    TSNETCDF = r"TSNC-Format/"
+    NETCDF = r"NC-Format/"
+    MEAN90M = r"3arcsecs/"
+    MEAN3KM = r"Statistics/"
 
 # 
 @dataclass()
@@ -105,32 +111,109 @@ class _WeaPoint():
             point.TransformTo(d3e5Prj)              # project it to the out spatial reference
             return [point.GetX(),point.GetY()]
 
-    def get_power_output(
+    def get_tsnetcdf_power_output(
         self,
         wind_data: dict,
-        power_curve: xarray.DataArray,
+        power_curves: xarray.DataArray,
+        #wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
         save_to: Optional[str] = None,
         ):
 
         # resetting the whole wind data in the passed wind_data dict to the desired point time series
-        new_wind_data = {}
+        interp_wind_data = {}
         for key, value in wind_data.items():
-            new_wind_data[key] = value.interp_point(
+            interp_wind_data[key] = value.interp_point(
                         target_coord=self.x_y_coor,
                         target_level=self.level, 
                         method=self.interpolation_method)#.load()
 
         # calculating power from wspd, rho and power_curve
+        power_curve = power_curves[self.wea_type]
         power = power_curve.load().sel(
-                wspd=xarray.DataArray(new_wind_data["wspd"].wspd.to_numpy(), dims='wea'), 
-                rho=xarray.DataArray(new_wind_data["rho"].rho.to_numpy(), dims='wea'), 
+                wspd=xarray.DataArray(interp_wind_data["wspd"].wspd.to_numpy(), dims='wea'), 
+                rho=xarray.DataArray(interp_wind_data["rho"].rho.to_numpy(), dims='wea'), 
                 method="nearest")#.load()
 
         #df = power.to_pandas().to_frame()
         #df = df.rename({0: "Eout"}, axis=1)
         #df = df.set_index(new_wind_data["wspd"].time.values)
 
-        self.power_time_series = power.values
+        self.power_time_series = power.values / 4 # divided by 4 because 15 min resolution
+
+
+    def get_mean90m_power_output(
+        self,
+        wind_data: dict,
+        power_curves: xarray.DataArray,
+        ):
+        
+        # resetting the whole wind data in the passed wind_data dict to the desired point time series
+        interp_wind_data = {}
+        for key, value in wind_data.items():
+
+            interp_wind_data[key] = value.interp_point(
+                        target_coord=self.lat_lon_coor,
+                        target_level=self.level, 
+                        method=self.interpolation_method)#.load()
+
+        # calculating power from wspd, rho and power_curve
+        power_curve = power_curves[self.wea_type]
+
+        self.power_time_series = self.weibull_power(
+            lkl=power_curve,
+            A=float(interp_wind_data["wbA"].wbA.to_numpy()),
+            k=float(interp_wind_data["wbk"].wbk.to_numpy()),
+            rho=float(interp_wind_data["rho"].rho.to_numpy()),
+            )
+
+
+    def weibull (
+        self,
+        v_i:np.array, 
+        A:float, 
+        k:float
+        ) -> np.array:
+
+        return 1 - np.exp(-(v_i/A)**k)
+
+
+    def weibull_power(
+        self, 
+        lkl, 
+        A, 
+        k, 
+        rho, 
+        s:float=0.85
+        ) -> float:
+        """https://www.energieatlas.nrw.de/site/Media/Default/Dokumente/Masterarbeit_Bettina_Einicke.pdf
+
+        Args:
+            lkl (_type_): _description_
+            A (_type_): _description_
+            k (_type_): _description_
+            rho (_type_): _description_
+            s (float, optional): _description_. Defaults to 0.85.
+
+        Returns:
+            float: _description_
+        """
+
+        F = self.weibull(v_i=lkl.wspd.to_numpy(), A=A, k=k)
+        P = lkl.interp(rho=rho, method="linear").to_numpy()
+
+        AEP_list = list()
+        for i, _ in enumerate(F):
+                if i == 0:
+                        AEP_i = 8760 * 10 * F[i] * P[i]
+
+                else:
+                        AEP_i = 8760 * 10 * (F[i] - F[i-1]) * ((P[i] + P[i-1])/2)
+                
+                AEP_list.append(AEP_i)
+        
+        #print(AEP_list)
+
+        return sum(AEP_list) #* s
 
 
 class WeaPoints():
@@ -161,9 +244,11 @@ class WeaPoints():
             #point_list: List[_WeaPoint] = None,
             #num_Points:int = None,
             _xy_coord_path: str = r"./lambert_projection/xy_lamber_projection_values",
+            _interpolated_power_curves: bool = True,
             ):
 
         self._xy_coord_path = _xy_coord_path
+        self._interpolated_power_curves = _interpolated_power_curves
 
         if not wea_types:
             wea_types = [None] * len(lat_lon_coor)
@@ -210,38 +295,107 @@ class WeaPoints():
 
         else:
             raise ValueError("Input dates for time_frame must be string in the form of year-month-day like: '2012-11-23'")
-
-
-    def get_power_output(
-            self,
-            power_curves: xarray.Dataset,
-            time_frame:List[int] = [2009, 2018],
-            wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
+    
+    def get_windpower_out(
+        self,
+        wind_data_type: WindDataType,
+        time_frame:List[int] = [2009, 2018],
         ):
-        # Transformation data for windatlas
-        #transformation = self._load_new_lambert_coor()
-        
+
         self.time_frame = [self.transforme_date(date) if not isinstance(date, np.datetime64) else date for date in time_frame]
 
-        if any ([self.time_frame[0]<np.datetime64("2009-01-01"),self.time_frame[-1]>np.datetime64("2018-01-01")]):
-            raise ValueError("Input dates for time_frame must be in range of: '2009-01-01' to '2018-01-01'")
+        if any ([self.time_frame[0]<np.datetime64("2009-01-01"),self.time_frame[-1]>np.datetime64("2018-12-31")]):
+            raise ValueError("Input dates for time_frame must be in range of: '2009-01-01' to '2018-12-31'")
 
-        print("Passed time_frame valid!")
+        print("Passed time_frame valid.")
 
-        wind_data = {}
+        if wind_data_type is WindDataType.TSNETCDF:
+            self.__tsnetcdf_out()
+
+        elif wind_data_type is WindDataType.NETCDF:
+            pass
+
+        elif wind_data_type is WindDataType.MEAN3KM:
+            pass
+
+        elif wind_data_type is WindDataType.MEAN90M:
+            self.time_frame = [np.datetime64("2009-01-01"), np.datetime64("2018-12-31")]
+            self.__mean90m_out()
+        
+        else:
+            print("")
+
+    def _load_power_curves(
+        self,
+        ):
+
+        if self._interpolated_power_curves:
+            path = "./wea_data/example/test_wea.nc"
+            power_curves = xarray.open_dataset(path)
+
+        if not self._interpolated_power_curves:
+            path = "/home/eouser/Documents/code/Windatlas/windatlas/anemos_data/wea_data/example/WEA_beispiel.csv"
+            power_curve = pandas.read_csv(path, delimiter=";", index_col=0)
+            power_curve = power_curve.reindex(sorted(power_curve.columns), axis=1)
+
+            power_curve = xarray.DataArray(power_curve).rename({"dim_0":"wspd", "dim_1":"rho"})
+            power_curve = power_curve.assign_coords(rho=np.float64(power_curve.rho))
+            power_curves = power_curve.to_dataset(name="test_wea")
+
+
+        return power_curves
+
+    def __tsnetcdf_out(
+        self,
+        wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY]
+        ):
+
+        self.wind_data = {}
         for param in wind_params:
-            wind_data[param.value] = TsNcWindData(wind_data_kind=param, time_frame=self.time_frame)#, xy_coord=transformation)
+            self.wind_data[param.value] = TsNcWindData(wind_data_kind=param, time_frame=self.time_frame)
+        print("TSnetCDF data loaded.")
 
-        self.time = list(wind_data.values())[0].winddata.time.to_numpy()
-        print("time loaded")
+        self.time_periode = list(self.wind_data.values())[0].winddata.time.to_numpy()
+        print("Time period loaded.")
+
+        power_curves = self._load_power_curves()
 
         for num, point in enumerate(self.point_list):
-            point.get_power_output(
-                wind_data=wind_data, 
-                power_curve=power_curves[point.wea_type],
+            point.get_tsnetcdf_power_output(
+                wind_data=self.wind_data, 
+                power_curves=power_curves,
                 )
             print(f"Windpower turbine {num+1} complete")
+
+    def __mean90m_out(
+        self,
+        weibull: bool = True
+        ):
         
+        if weibull:
+            wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WEIBULLA, WindDataKind.WEIBULLK]
+
+        if not weibull:
+            wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WINDSPEED]
+
+        self.time_periode = [np.datetime64("2018-12-31")]
+
+        self.wind_data = {}
+        for param in wind_params:
+            self.wind_data[param.value] = Mean90mWindData(wind_data_kind=param)
+        print("mean90m data loaded.")
+
+        power_curves = self._load_power_curves()
+
+        for num, point in enumerate(self.point_list):
+            point.get_mean90m_power_output(
+                wind_data=self.wind_data, 
+                power_curves=power_curves,
+                )
+            print(f"Windpower turbine {num+1} complete")
+
+
+
 
 def from_MaStR(
         mastr_df: pandas.DataFrame,
