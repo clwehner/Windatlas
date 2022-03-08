@@ -43,7 +43,8 @@ class WindDataType(Enum):
     TSNETCDF = r"TSNC-Format/"
     NETCDF = r"NC-Format/"
     MEAN90M = r"3arcsecs/"
-    MEAN3KM = r"Statistics/"
+    MEAN3KM10A = r"Statistics/10-Jahresmittel/"
+    MEAN3KM1A = r"Statistics/Jahresmittel/"
 
 @unique
 class InterpolationMethod(Enum):
@@ -324,6 +325,98 @@ class Mean90mWindData(_WindData):
 
         x=target_coord[1],
         y=target_coord[0],
+        level=target_level,
+        method=method.value
+
+        if not self.mfdataset:
+            interp_data =  self.winddata.interp(
+                    x=x[0],
+                    y=y[0],
+                    level=level[0],
+                    method=method)#.interp(
+                    #level=level[0],
+                    #method=method)
+
+            return interp_data#.load()
+        
+        if self.mfdataset:
+            raise NotImplementedError()
+
+    def agg_shape(
+    self,
+    target_shapes: List[float],
+    aggregation_method: Optional[AggregationMethod] = AggregationMethod.MEDIAN,
+    interpolation_method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+    ) -> xarray.Dataset:
+        pass
+
+
+class Mean3km10aWindData(_WindData):
+
+    _xy_coord_path = r"./lambert_projection/xy_lamber_projection_values"
+    _wind_data_type = WindDataType.MEAN3KM10A
+    winddata = None
+
+    def __init__(
+        self,
+        wind_data_kind: WindDataKind,
+        #time_frame: Optional[List[int]] = None,
+        _wind_data_path: Optional[str] = None,
+        chunks: Optional[Dict] = None,
+        mfdataset: Optional[bool] = False,
+        parallel: Optional[bool] = True,
+        ):
+
+        super().__init__( 
+            _wind_data_path = _wind_data_path,
+            _wind_data_type = self._wind_data_type,
+            )#_WindData, self
+
+        #self.time_frame = time_frame
+        self.wind_data_kind = wind_data_kind
+
+        self.chunks = chunks
+        self.mfdataset = mfdataset
+        self.parallel = parallel
+
+        self.winddata = self.load_winddata()
+
+
+    def __load_winddata_mfds(self) -> xarray.Dataset:
+        path = f"{self.data_path}{self.wind_data_kind.value}.10L.ltm.2009-2018.nc"
+        data = xarray.open_mfdataset(path, engine='h5netcdf', chunks=self.chunks, parallel=self.parallel)
+
+        #data = self._assign_new_lambert_coor(data)
+
+        return data
+
+    def __load_winddata_ds(self) -> xarray.Dataset:
+        path = f"{self.data_path}{self.wind_data_kind.value}.10L.ltm.2009-2018.nc"
+        data = xarray.open_dataset(path, engine='h5netcdf')
+
+        #data = self._assign_new_lambert_coor(data)
+
+        return data
+
+    def load_winddata(self) -> xarray.Dataset:
+        if self.mfdataset:
+            return self.__load_winddata_mfds()
+
+        if not self.mfdataset:
+            return self.__load_winddata_ds()
+
+    def get_winddata(self):
+        return self.winddata
+
+    def interp_point(
+        self,
+        target_coord: List[float],
+        target_level,
+        method: Optional[InterpolationMethod] = InterpolationMethod.LINEAR,
+        ) -> xarray.Dataset:
+
+        x=target_coord[0],
+        y=target_coord[1],
         level=target_level,
         method=method.value
 

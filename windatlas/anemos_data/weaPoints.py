@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum, unique
 from typing import List, Dict, Optional
 
-from anemosData import _WindData, WindDataKind, TsNcWindData, Mean90mWindData
+from anemosData import _WindData, WindDataKind, TsNcWindData, Mean90mWindData, Mean3km10aWindData
 from power_curve import Lkl_array
 
 #########################################################
@@ -41,6 +41,11 @@ class WindDataType(Enum):
     NETCDF = r"NC-Format/"
     MEAN90M = r"3arcsecs/"
     MEAN3KM = r"Statistics/"
+
+class CalculationMethod (Enum):
+    WEIBULL = "weibull"
+    RAYLEIGH = "rayleigh"
+    WINDSPEEDMEAN = "wspd"
 
 # 
 @dataclass()
@@ -145,6 +150,7 @@ class _WeaPoint():
         self,
         wind_data: dict,
         power_curves: xarray.DataArray,
+        calculation_method: CalculationMethod,
         ):
         
         # resetting the whole wind data in the passed wind_data dict to the desired point time series
@@ -159,13 +165,80 @@ class _WeaPoint():
         # calculating power from wspd, rho and power_curve
         power_curve = power_curves[self.wea_type]
 
-        self.power_time_series = self.weibull_power(
-            lkl=power_curve,
-            A=float(interp_wind_data["wbA"].wbA.to_numpy()),
-            k=float(interp_wind_data["wbk"].wbk.to_numpy()),
-            rho=float(interp_wind_data["rho"].rho.to_numpy()),
-            )
+        if calculation_method is CalculationMethod.WEIBULL:
+            self.power_time_series = self.weibull_aep(
+                lkl=power_curve,
+                A=float(interp_wind_data["wbA"].wbA.to_numpy()),
+                k=float(interp_wind_data["wbk"].wbk.to_numpy()),
+                rho=float(interp_wind_data["rho"].rho.to_numpy()),
+                years = 10,
+                s = 1,
+                )
 
+        if calculation_method is CalculationMethod.RAYLEIGH:
+            self.power_time_series = self.rayleigh_aep(
+                lkl=power_curve,
+                v_mean=float(interp_wind_data["wspd"].wspd.to_numpy()),
+                rho=float(interp_wind_data["rho"].rho.to_numpy()),
+                years = 10,
+                s = 1,
+                )
+
+    def get_mean3km10a_power_output(
+        self,
+        wind_data: dict,
+        power_curves: xarray.DataArray,
+        calculation_method: CalculationMethod,
+        ):
+        
+        # resetting the whole wind data in the passed wind_data dict to the desired point time series
+        interp_wind_data = {}
+        for key, value in wind_data.items():
+
+            interp_wind_data[key] = value.interp_point(
+                        target_coord=self.x_y_coor,
+                        target_level=self.level, 
+                        method=self.interpolation_method)#.load()
+
+        # calculating power from wspd, rho and power_curve
+        power_curve = power_curves[self.wea_type]
+
+        if calculation_method is CalculationMethod.WEIBULL:
+            self.power_time_series = self.weibull_aep(
+                lkl=power_curve,
+                A=float(interp_wind_data["wbA"].wbA.to_numpy()),
+                k=float(interp_wind_data["wbk"].wbk.to_numpy()),
+                rho=float(interp_wind_data["rho"].rho.to_numpy()),
+                years = 10,
+                s = 1,
+                )
+
+        if calculation_method is CalculationMethod.RAYLEIGH:
+            self.power_time_series = self.rayleigh_aep(
+                lkl=power_curve,
+                v_mean=float(interp_wind_data["wspd"].wspd.to_numpy()),
+                rho=float(interp_wind_data["rho"].rho.to_numpy()),
+                years = 10,
+                s = 1,
+                )
+
+
+    def rayleigh (
+        self, 
+        v_i:np.array, 
+        v_mean:float
+        ) -> np.array:
+        """_summary_
+
+        Args:
+            v_i (np.array): _description_
+            v_mean (float): _description_
+
+        Returns:
+            np.array: _description_
+        """
+
+        return 1 - np.exp(-(np.pi/4)*(v_i/v_mean)**2)
 
     def weibull (
         self,
@@ -173,25 +246,65 @@ class _WeaPoint():
         A:float, 
         k:float
         ) -> np.array:
+        """_summary_
+
+        Args:
+            v_i (np.array): _description_
+            A (float): _description_
+            k (float): _description_
+
+        Returns:
+            np.array: _description_
+        """
 
         return 1 - np.exp(-(v_i/A)**k)
 
-
-    def weibull_power(
+    def annual_energy_production (
         self, 
-        lkl, 
-        A, 
-        k, 
-        rho, 
+        F:np.array,
+        P:np.array, 
         s:float=0.85
         ) -> float:
-        """https://www.energieatlas.nrw.de/site/Media/Default/Dokumente/Masterarbeit_Bettina_Einicke.pdf
+        """_summary_
 
         Args:
-            lkl (_type_): _description_
-            A (_type_): _description_
-            k (_type_): _description_
-            rho (_type_): _description_
+            F (np.array): _description_
+            P (np.array): _description_
+            s (float, optional): _description_. Defaults to 0.85.
+
+        Returns:
+            float: _description_
+        """
+
+        AEP_list = list()
+        for i, _ in enumerate(F):
+            if i == 0:
+                AEP_i = 8760 * F[i] * P[i]
+
+            else:
+                AEP_i = 8760 * (F[i] - F[i-1]) * ((P[i] + P[i-1])/2)
+            
+            AEP_list.append(AEP_i)
+
+        return sum(AEP_list) * s
+
+    def weibull_aep(
+        self, 
+        lkl:xarray.DataArray, 
+        A:float, 
+        k:float, 
+        rho:float, 
+        years:int, 
+        s:float=0.85
+        ) -> float:
+        """_summary_
+
+        Args:
+            lkl (xarray.DataArray): _description_
+            A (float): _description_
+            k (float): _description_
+            rho (float): _description_
+            years (int): _description_
             s (float, optional): _description_. Defaults to 0.85.
 
         Returns:
@@ -199,21 +312,36 @@ class _WeaPoint():
         """
 
         F = self.weibull(v_i=lkl.wspd.to_numpy(), A=A, k=k)
+        print("rho")
         P = lkl.interp(rho=rho, method="linear").to_numpy()
 
-        AEP_list = list()
-        for i, _ in enumerate(F):
-                if i == 0:
-                        AEP_i = 8760 * 10 * F[i] * P[i]
+        return self.annual_energy_production(F=F, P=P, s=s) * years
 
-                else:
-                        AEP_i = 8760 * 10 * (F[i] - F[i-1]) * ((P[i] + P[i-1])/2)
-                
-                AEP_list.append(AEP_i)
+    def rayleigh_aep(
+        self, 
+        lkl:xarray.DataArray, 
+        v_mean:float, 
+        rho:float, 
+        years:int, 
+        s:float=0.85
+        ) -> float:
+        """_summary_
+
+        Args:
+            lkl (xarray.DataArray): _description_
+            v_mean (float): _description_
+            rho (float): _description_
+            years (int): _description_
+            s (float, optional): _description_. Defaults to 0.85.
+
+        Returns:
+            float: _description_
+        """
         
-        #print(AEP_list)
+        F = self.rayleigh(v_i=lkl.wspd.to_numpy(), v_mean=v_mean)
+        P = lkl.interp(rho=rho, method="linear").to_numpy()
 
-        return sum(AEP_list) #* s
+        return self.annual_energy_production(F=F, P=P, s=s) * years
 
 
 class WeaPoints():
@@ -300,6 +428,7 @@ class WeaPoints():
         self,
         wind_data_type: WindDataType,
         time_frame:List[int] = [2009, 2018],
+        calculation_method: CalculationMethod = CalculationMethod.WEIBULL,
         ):
 
         self.time_frame = [self.transforme_date(date) if not isinstance(date, np.datetime64) else date for date in time_frame]
@@ -316,11 +445,12 @@ class WeaPoints():
             pass
 
         elif wind_data_type is WindDataType.MEAN3KM:
-            pass
+            self.time_frame = [np.datetime64("2009-01-01"), np.datetime64("2018-12-31")]
+            self.__mean3km10a_out(calculation_method=calculation_method)
 
         elif wind_data_type is WindDataType.MEAN90M:
             self.time_frame = [np.datetime64("2009-01-01"), np.datetime64("2018-12-31")]
-            self.__mean90m_out()
+            self.__mean90m_out(calculation_method=calculation_method)
         
         else:
             print("")
@@ -369,13 +499,13 @@ class WeaPoints():
 
     def __mean90m_out(
         self,
-        weibull: bool = True
+        calculation_method: CalculationMethod,
         ):
         
-        if weibull:
+        if calculation_method is CalculationMethod.WEIBULL:
             wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WEIBULLA, WindDataKind.WEIBULLK]
 
-        if not weibull:
+        if calculation_method is (CalculationMethod.RAYLEIGH or CalculationMethod.WINDSPEEDMEAN):
             wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WINDSPEED]
 
         self.time_periode = [np.datetime64("2018-12-31")]
@@ -391,6 +521,35 @@ class WeaPoints():
             point.get_mean90m_power_output(
                 wind_data=self.wind_data, 
                 power_curves=power_curves,
+                calculation_method = calculation_method,
+                )
+            print(f"Windpower turbine {num+1} complete")
+
+    def __mean3km10a_out(
+        self,
+        calculation_method: CalculationMethod,
+        ):
+        
+        if calculation_method is CalculationMethod.WEIBULL:
+            wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WEIBULLA, WindDataKind.WEIBULLK]
+
+        if calculation_method is (CalculationMethod.RAYLEIGH or CalculationMethod.WINDSPEEDMEAN):
+            wind_params = [WindDataKind.AIRDENSITY, WindDataKind.WINDSPEED]
+
+        self.time_periode = [np.datetime64("2018-12-31")]
+
+        self.wind_data = {}
+        for param in wind_params:
+            self.wind_data[param.value] = Mean3km10aWindData(wind_data_kind=param)
+        print("mean3km10a data loaded.")
+
+        power_curves = self._load_power_curves()
+
+        for num, point in enumerate(self.point_list):
+            point.get_mean3km10a_power_output(
+                wind_data=self.wind_data, 
+                power_curves=power_curves,
+                calculation_method=calculation_method,
                 )
             print(f"Windpower turbine {num+1} complete")
 
