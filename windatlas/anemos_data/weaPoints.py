@@ -17,7 +17,7 @@ from enum import Enum, unique
 from typing import List, Dict, Optional
 
 from anemosData import _WindData, WindDataKind, TsNcWindData, Mean90mWindData, Mean3km10aWindData
-from power_curve import Lkl_array
+#from power_curve import Lkl_array
 
 #########################################################
 ### Filter functions to work through netCDF wind data ###
@@ -85,6 +85,8 @@ class _WeaPoint():
             init=False, 
             repr=False,
             compare=False)
+    EinheitMastrNummer: Optional[str]=None
+    Hauptwindrichtung: Optional[int]=None 
 
     def __post_init__(self):
         self.x_y_coor = self.__coor_transformation()
@@ -119,11 +121,17 @@ class _WeaPoint():
     def get_tsnetcdf_power_output(
         self,
         wind_data: dict,
-        power_curves: xarray.DataArray,
+        power_curves: xarray.Dataset,
         #wind_params: Optional[List[WindDataKind]] = [WindDataKind.WINDSPEED, WindDataKind.AIRDENSITY],
         save_to: Optional[str] = None,
         ):
+        """TO DO: Include time step factor for power calculation relative to data!!!
 
+        Args:
+            wind_data (dict): _description_
+            power_curves (xarray.DataArray): _description_
+            save_to (Optional[str], optional): _description_. Defaults to None.
+        """
         # resetting the whole wind data in the passed wind_data dict to the desired point time series
         interp_wind_data = {}
         for key, value in wind_data.items():
@@ -133,7 +141,9 @@ class _WeaPoint():
                         method=self.interpolation_method)#.load()
 
         # calculating power from wspd, rho and power_curve
-        power_curve = power_curves[self.wea_type]
+        #print(power_curves)
+        power_curve = power_curves.sel(wea_type=self.wea_type)
+        #print(power_curve.values)
         power = power_curve.load().sel(
                 wspd=xarray.DataArray(interp_wind_data["wspd"].wspd.to_numpy(), dims='wea'), 
                 rho=xarray.DataArray(interp_wind_data["rho"].rho.to_numpy(), dims='wea'), 
@@ -142,8 +152,9 @@ class _WeaPoint():
         #df = power.to_pandas().to_frame()
         #df = df.rename({0: "Eout"}, axis=1)
         #df = df.set_index(new_wind_data["wspd"].time.values)
-
-        self.power_time_series = power.values / 4 # divided by 4 because 15 min resolution
+        #print(power.wea)
+        #print(type(power))
+        self.power_time_series = power.values / 6 # divided by 4 because 10 min resolution
 
 
     def get_mean90m_power_output(
@@ -204,6 +215,7 @@ class _WeaPoint():
         power_curve = power_curves[self.wea_type]
 
         if calculation_method is CalculationMethod.WEIBULL:
+            print(interp_wind_data["rho"].rho)
             self.power_time_series = self.weibull_aep(
                 lkl=power_curve,
                 A=float(interp_wind_data["wbA"].wbA.to_numpy()),
@@ -343,6 +355,9 @@ class _WeaPoint():
 
         return self.annual_energy_production(F=F, P=P, s=s) * years
 
+    def calculate_Hauptwindrichtung (self):
+        pass
+
 
 class WeaPoints():
     """This is a collection class for the _Wea_point class.
@@ -460,8 +475,8 @@ class WeaPoints():
         ):
 
         if self._interpolated_power_curves:
-            path = "./wea_data/example/test_wea.nc"
-            power_curves = xarray.open_dataset(path)
+            path = "./wea_data/data/wea_lkl.nc"
+            power_curves = xarray.open_dataarray(path)
 
         if not self._interpolated_power_curves:
             path = "/home/eouser/Documents/code/Windatlas/windatlas/anemos_data/wea_data/example/WEA_beispiel.csv"
@@ -552,6 +567,15 @@ class WeaPoints():
                 calculation_method=calculation_method,
                 )
             print(f"Windpower turbine {num+1} complete")
+
+    def timeseries_to_pandas (self) -> pandas.DataFrame:
+
+        Eout = {}
+        for num, point in enumerate(self.point_list):
+            Eout[f"wea_{num+1}: {point.lat_lon_coor}"] = point.power_time_series
+
+        return pandas.DataFrame(data=Eout,index=self.time_periode)
+
 
 
 

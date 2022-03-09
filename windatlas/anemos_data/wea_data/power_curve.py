@@ -203,7 +203,7 @@ class Lkl_array():
     def to_netcdf(
         self,
         path: str,
-        name: Optional[str] = None
+        name_if_dataarray: Optional[str] = None
         ):
         
         try:
@@ -212,5 +212,24 @@ class Lkl_array():
             pass
 
         if self.xr_dataclass.value == "DataArray":
-            export = self.lkl_xarray.to_dataset(name=name, promote_attrs=True)
+            export = self.lkl_xarray.to_dataset(name=name_if_dataarray, promote_attrs=True)
             export.to_netcdf(path=path, mode="w")
+
+
+def create_lkl_from_1D_data (
+    base_lkl: pandas.DataFrame,
+    target_lkl: pandas.DataFrame,
+    ) -> pandas.DataFrame:
+
+    rel_bsp = pandas.DataFrame().reindex_like(base_lkl)
+    initial = base_lkl.loc[:,1.225]
+
+    for column in base_lkl.columns:
+        rel_bsp[column] = 1 + ((base_lkl[column] - initial)/initial)
+
+    full_target_lkl = pandas.DataFrame().reindex_like(base_lkl)
+
+    for column in full_target_lkl.columns:
+        full_target_lkl[column] = target_lkl[1.225] * rel_bsp[column]
+
+    return full_target_lkl.round()
