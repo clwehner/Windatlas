@@ -468,7 +468,7 @@ class WeaPoints():
             self.__mean90m_out(calculation_method=calculation_method)
         
         else:
-            print("")
+            pass#print("")
 
     def _load_power_curves(
         self,
