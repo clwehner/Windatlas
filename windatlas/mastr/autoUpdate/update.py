@@ -1,4 +1,5 @@
 import logging
+from multiprocessing import connection
 import os
 from enum import Enum, unique
 
@@ -11,7 +12,7 @@ import sqlalchemy
 
 ##### Defining Constants
 
-from .. import _CONN_PARAMS_DIC
+from global_setup import _CONN_PARAMS_DIC
 
 _MASTR_URL = "https://www.marktstammdatenregister.de/MaStR/Datendownload"
 _XML_DUMMY_PATH = r"/uba/mastr/MaStR/Vollauszüge/recent/"
@@ -209,11 +210,29 @@ class MastrDBUpdate():
                 if_exists="replace",
                 index=False
             )
+
+            if "Breitengrad" and "Laengengrad" in  df.columns:
+                self.postGis_add_coordinates (engine=engine, tableName=tableName)
+
             del(df, listDfs, tableName)
             do_logging(".")
 
         engine.dispose()
         do_logging("connection to DB disposed")
+
+
+    def postGis_add_coordinates (
+            self,
+            engine,
+            tableName:str,
+        ):
+        query = f'ALTER TABLE mastr_raw."{tableName}" ADD COLUMN geom geometry(Point, 4326); UPDATE mastr_raw."{tableName}" SET geom = ST_SetSRID(ST_MakePoint("{tableName}"."Laengengrad", "{tableName}"."Breitengrad"), 4326);'
+        
+        connection = engine.connect()
+        results = connection.execute(query)#.fetchall()
+
+        do_logging(f"postGIS points added to: {tableName}")
+
 
 ##### Defining main function to run
 
