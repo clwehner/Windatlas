@@ -38,6 +38,7 @@ class WindDataKind(Enum):
     AIRPRESSURE = "pres"
     WEIBULLA = "wbA"
     WEIBULLK = "wbk"
+    DIRHISTOS = "dirhistos"
 
 class WindDataType(Enum):
     TSNETCDF = r"TSNC-Format/"
@@ -365,6 +366,7 @@ class Mean3km10aWindData(_WindData):
         chunks: Optional[Dict] = None,
         mfdataset: Optional[bool] = False,
         parallel: Optional[bool] = True,
+        level: Optional[int] = None,
         ):
 
         super().__init__( 
@@ -379,7 +381,12 @@ class Mean3km10aWindData(_WindData):
         self.mfdataset = mfdataset
         self.parallel = parallel
 
-        self.winddata = self.load_winddata()
+        if wind_data_kind is WindDataKind.DIRHISTOS:
+            path = f"{self.data_path}{self.wind_data_kind.value}.{str(level)}m.2009-2018.nc"
+            self.winddata = xarray.open_dataset(path, engine='h5netcdf')
+            
+        else:
+            self.winddata = self.load_winddata()
 
 
     def __load_winddata_mfds(self) -> xarray.Dataset:

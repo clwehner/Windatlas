@@ -40,7 +40,8 @@ class WindDataType(Enum):
     TSNETCDF = r"TSNC-Format/"
     NETCDF = r"NC-Format/"
     MEAN90M = r"3arcsecs/"
-    MEAN3KM = r"Statistics/"
+    MEAN3KM10A = r"Statistics/10-Jahresmittel/"
+    MEAN3KM1A = r"Statistics/Jahresmittel/"
 
 class CalculationMethod (Enum):
     WEIBULL = "weibull"
@@ -86,7 +87,8 @@ class _WeaPoint():
             repr=False,
             compare=False)
     EinheitMastrNummer: Optional[str]=None
-    Hauptwindrichtung: Optional[int]=None 
+    Hauptwindrichtung: Optional[int]=None
+    mittlere_windgeschw_Hauptwindrichtung: Optional[float]=None
 
     def __post_init__(self):
         self.x_y_coor = self.__coor_transformation()
@@ -154,7 +156,7 @@ class _WeaPoint():
         #df = df.set_index(new_wind_data["wspd"].time.values)
         #print(power.wea)
         #print(type(power))
-        self.power_time_series = power.values / 6 # divided by 4 because 10 min resolution
+        self.power_time_series = power.power.values / 6 # divided by 4 because 10 min resolution
 
 
     def get_mean90m_power_output(
@@ -174,7 +176,7 @@ class _WeaPoint():
                         method=self.interpolation_method)#.load()
 
         # calculating power from wspd, rho and power_curve
-        power_curve = power_curves[self.wea_type]
+        power_curve = power_curves.sel(wea_type=self.wea_type)
 
         if calculation_method is CalculationMethod.WEIBULL:
             self.power_time_series = self.weibull_aep(
@@ -324,8 +326,8 @@ class _WeaPoint():
         """
 
         F = self.weibull(v_i=lkl.wspd.to_numpy(), A=A, k=k)
-        print("rho")
-        P = lkl.interp(rho=rho, method="linear").to_numpy()
+        #print(lkl)
+        P = lkl.interp(rho=rho, method="linear").power.to_numpy()
 
         return self.annual_energy_production(F=F, P=P, s=s) * years
 
@@ -351,12 +353,44 @@ class _WeaPoint():
         """
         
         F = self.rayleigh(v_i=lkl.wspd.to_numpy(), v_mean=v_mean)
-        P = lkl.interp(rho=rho, method="linear").to_numpy()
+        P = lkl.interp(rho=rho, method="linear").power.to_numpy()
 
         return self.annual_energy_production(F=F, P=P, s=s) * years
 
+    def __nth_nearest_1D (self,sorted_array, value, n):
+        closesed = list()
+        diff = abs(sorted_array - value)
+
+        for i in range(0,n,1):
+            arg_nth_min_in_diff = np.where(diff == np.partition(diff, i)[i])
+            int_of_nth_value = int(sorted_array[arg_nth_min_in_diff][0])
+            closesed.append(int_of_nth_value)
+
+        return closesed
+
     def calculate_Hauptwindrichtung (self):
-        pass
+        levels = np.array([40,60,80,100,120,140,170,200,250,300])
+        levels = self.__nth_nearest_1D(sorted_array=levels, value=self.level, n=2)
+        Hauptwindrichtung = list()
+        mittlere_windgeschw_Hauptwindrichtung = list()
+
+        for level in levels:
+            data = Mean3km10aWindData(wind_data_kind=WindDataKind.DIRHISTOS, level=level)
+            data = data.winddata.interp(x= self.x_y_coor[0], y= self.x_y_coor[1], method= "quadratic")
+            mean_wspd_per_direction = data.wspd.values
+            wspd_histo = data.histo.values
+            directions = data.klassengrenzen.values - data.klassengrenzen.values[1]
+            hauptwindID = np.argmax(wspd_histo)
+
+            Hauptwindrichtung.append(directions[hauptwindID])
+            mittlere_windgeschw_Hauptwindrichtung.append(mean_wspd_per_direction[hauptwindID])
+
+        self.Hauptwindrichtung = sum(Hauptwindrichtung) / len(Hauptwindrichtung)
+
+        # Not working jet
+        #self.mittlere_windgeschw_Hauptwindrichtung = sum(mittlere_windgeschw_Hauptwindrichtung) / len(mittlere_windgeschw_Hauptwindrichtung)
+
+
 
 
 class WeaPoints():
@@ -459,7 +493,7 @@ class WeaPoints():
         elif wind_data_type is WindDataType.NETCDF:
             pass
 
-        elif wind_data_type is WindDataType.MEAN3KM:
+        elif wind_data_type is WindDataType.MEAN3KM10A:
             self.time_frame = [np.datetime64("2009-01-01"), np.datetime64("2018-12-31")]
             self.__mean3km10a_out(calculation_method=calculation_method)
 
@@ -470,13 +504,17 @@ class WeaPoints():
         else:
             pass#print("")
 
+    def calculate_Hauptwindrichtung (self):
+        for point in self.point_list:
+            point.calculate_Hauptwindrichtung()
+
     def _load_power_curves(
         self,
         ):
 
         if self._interpolated_power_curves:
-            path = "./wea_data/data/wea_lkl.nc"
-            power_curves = xarray.open_dataarray(path)
+            path = "/uba/anemos_winddata/powercurves/single_netcdfs/wea_*.nc"
+            power_curves = xarray.open_mfdataset(path, parallel=True, engine="h5netcdf", combine="nested", concat_dim="wea_type")
 
         if not self._interpolated_power_curves:
             path = "/home/eouser/Documents/code/Windatlas/windatlas/anemos_data/wea_data/example/WEA_beispiel.csv"

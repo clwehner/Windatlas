@@ -225,6 +225,7 @@ def create_lkl_from_xls (
     increment_rho: float = 0.0001,
     power_limiter: bool = True,
     wspd_to_zero: bool = True,
+    append: bool = False,
     ):
     """_summary_
 
@@ -245,15 +246,29 @@ def create_lkl_from_xls (
 
     for sheet in sheets:
         lkl_dict[sheet] = pandas.read_excel(xls, sheet, index_col=0)
-
+    #return lkl_dict
     # 2. Extend all lkl's which are only for one air_density (rho=1.225) to multiple air_densitys based on the passed WEA_beispiel
     for key in lkl_dict:
-        if key == 'WEA_beispiel':
-            continue
-        lkl_dict[key] = create_lkl_from_1D_data(base_lkl=lkl_dict['WEA_beispiel'], target_lkl=lkl_dict[key])
+        # check if initial lkl has only a single column and needs to be expanded from 1D to 2D
+        if len(lkl_dict[key].columns) > 1:
+            
+            if key == 'WEA_beispiel':
+                continue
+            
+            # extend lkl for abschaltzeiten bis wspd 35 
+            index = lkl_dict[key].index
+            wspd_step = numpy.gradient(index)[-1] # .median()
+            wspd_max = index.max()
+            rho_columns = lkl_dict[key].columns
+            df_append = pandas.DataFrame(0,index=numpy.arange(wspd_max + wspd_step,35 + wspd_step,wspd_step), columns=rho_columns)
+            lkl_dict[key] = pandas.concat([lkl_dict[key], df_append])
 
+        else:
+            lkl_dict[key] = create_lkl_from_1D_data(target_lkl=lkl_dict[key])
+    #return lkl_dict
     # 3. Building a xarray.Dataarray for each lkl from the pandas.Dataframes
     for key in lkl_dict:
+        
         coords = {
                 "wspd": (["wspd"], numpy.array(lkl_dict[key].index, dtype="float64")),
                 "rho": (["rho"], numpy.array(lkl_dict[key].columns, dtype="float64")),
@@ -266,17 +281,37 @@ def create_lkl_from_xls (
                 'LICENSE': 'PRIVATE! Diese Leistungskennlinien dürfen nur innerhalb des deutschen Umweltbundesamtes (UBA) für Forschungszwecke verwendet werden.'
                 }
 
-        lkl_dict[key] = xarray.DataArray(
+        
+        array = xarray.DataArray(
             data=numpy.array(lkl_dict[key]),
             coords=coords,
             attrs=attrs
-    )
+            )
 
+        if not numpy.array_equal(array.wspd.to_numpy(), numpy.arange(3,35.5,0.5)) and not numpy.array_equal(array.rho.to_numpy(), numpy.arange(0.95,1.3,0.25)):
+            wspd = numpy.arange(3,35.5,0.5)
+            rho = numpy.arange(0.95,1.3,0.025)
+            # coords = {"wspd":wspd,"rho":rho}
+            array = array.interp(wspd=wspd, rho=rho, method="linear", kwargs=dict(fill_value="extrapolate"))
+            array = array.where(array > 0, 0)
+
+        # Extend right rho range from 1.275 to 1.3
+        array = array.interp(rho = numpy.arange(0.95,1.325,0.025), method="linear", kwargs=dict(fill_value="extrapolate"))
+        array = array.assign_coords(
+                    coords={
+                        "wspd": array.wspd.round(decimals=3),
+                        "rho": array.rho.round(decimals=4)}
+                )
+
+        lkl_dict[key] = array
+        del(array)
+
+    #return lkl_dict
     # 4. Interpolate each lkl to the passed new increment
     for key in lkl_dict:
         new_wspd = numpy.arange(lkl_dict[key].wspd[0], lkl_dict[key].wspd[-1]+increment_wspd, increment_wspd, dtype=numpy.float64)
         new_rho = numpy.arange(lkl_dict[key].rho[0], lkl_dict[key].rho[-1]+increment_rho, increment_rho, dtype=numpy.float64)
-        interpolated_array = lkl_dict[key].interp(wspd=new_wspd, rho=new_rho, method="cubic")
+        interpolated_array = lkl_dict[key].interp(wspd=new_wspd, rho=new_rho, method="quadratic")
 
         #### GOLDEN STEP TO MAKE xarray.Dataarray.sel() WORK AFTER INTERPOLATION ####
         # Reassigning helps solving the rounding error of estimation in float number
@@ -312,20 +347,29 @@ def create_lkl_from_xls (
             )
 
             interpolated_array = xarray.combine_by_coords([zero_array, interpolated_array])
-        
-        lkl_dict[key] = interpolated_array
-    
+            interpolated_array = interpolated_array.assign_coords(
+                    coords={
+                        "wspd": interpolated_array.wspd.round(decimals=3),
+                        "rho": interpolated_array.rho.round(decimals=4)}
+                )
+            
+        interpolated_array = interpolated_array.where(interpolated_array.rho <= 1.3, drop=True)
+        lkl_dict[key] = interpolated_array.rename("power")
+        del(interpolated_array)
+    #return lkl_dict
 
     # 7. Concatinating interpolated lkl arrays
     concatinated_arrays = xarray.concat(lkl_dict.values(), pandas.Index(lkl_dict.keys(), name="wea_type"))
-
+    del(lkl_dict)
     # 8. Export the full lkl-DataArray to a netCDF file
     concatinated_arrays.to_netcdf(path = output_path, mode="w")
 
 def create_lkl_from_1D_data (
-    base_lkl: pandas.DataFrame,
     target_lkl: pandas.DataFrame,
+    base_lkl_path: str = "/home/eouser/Documents/code/Windatlas/windatlas/anemos_data/wea_data/raw_data/WEA_beispiel.xls",
     ) -> pandas.DataFrame:
+
+    base_lkl = pandas.read_excel(base_lkl_path, index_col=0)
 
     rel_bsp = pandas.DataFrame().reindex_like(base_lkl)
     initial = base_lkl.loc[:,1.225]
@@ -337,5 +381,7 @@ def create_lkl_from_1D_data (
 
     for column in full_target_lkl.columns:
         full_target_lkl[column] = target_lkl[1.225] * rel_bsp[column]
+        full_target_lkl.loc[target_lkl.index.max() + 0.5,column] = 0
+        full_target_lkl[column] = full_target_lkl[column].interpolate()
 
-    return full_target_lkl.round()
+    return full_target_lkl.round()#, rel_bsp
