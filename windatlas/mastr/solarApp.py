@@ -9,6 +9,8 @@ import plotly.express as px
 
 from datetime import date
 
+import warnings
+warnings.filterwarnings('ignore')
 
 class SolarApp():
     __SQL_PATH = r"./sqlCommands/"
@@ -113,10 +115,24 @@ class SolarApp():
 
             cutdf = self.solarDf.loc[(self.solarDf.loc[:,'Inbetriebnahmedatum'] >= start) & (self.solarDf.loc[:,'Inbetriebnahmedatum'] <= end),:]
             cutdf.loc[:,"Groessenklasse"] = cutdf.apply(lambda x: self.classify_Leistung(NennLeistung=x["Nettonennleistung"],threshklasse= klassenList), axis=1)
+            cutdf["Groessenklasse"] = cutdf["Groessenklasse"].astype(str)
             self.classifiedDf = cutdf
             #self.out_button_classify_solar_group.clear_output()
             #print("fertig klassifiziert")
             self.groupedDf = cutdf.groupby(["Groessenklasse"]).sum().reset_index()
+
+            df = self.groupedDf
+
+            for i in df.index:
+                if i < df.index.max():
+                    print(str(df.loc[i, "Groessenklasse"]) + " - " + str(float(df.loc[i+1, "Groessenklasse"]) - 0.1))
+                    df.loc[i, "Groessenklasse"] = str(df.loc[i, "Groessenklasse"]) + " - " + str(float(df.loc[i+1, "Groessenklasse"]) - 0.1)
+                else:
+                    print(str(df.loc[i, "Groessenklasse"]) + " +")
+                    df.loc[i, "Groessenklasse"] = str(df.loc[i, "Groessenklasse"]) + " +"
+
+            self.groupedDf = df
+
             display(self.groupedDf.loc[:,["Groessenklasse","Nettonennleistung","Anlagenzahl"]])
     
     # APP LAYOUT
@@ -143,7 +159,7 @@ class SolarApp():
         self.groessenklassen = ipw.Text(
             value="0,5,10,100,500",
             placeholder="5,10,100",
-            description="Größenklassen",
+            description="Untere Größenklassengrenze:",
             disable = False,
             display='flex',
             layout = layout,
@@ -151,8 +167,8 @@ class SolarApp():
         )
         anlagentyp = ipw.Dropdown(
             options = ["Dachanlagen", "Freiflächenanlagen", "Dach- und Freiflächenanlagen"],
-            value = "Freiflächenanlagen",
-            description = "Anlagentyp",
+            value = "Dach- und Freiflächenanlagen",
+            description = "Anlagentyp:",
             disable = False,
             display='flex',
             layout = layout,
